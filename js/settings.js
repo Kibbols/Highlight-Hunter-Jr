@@ -2,103 +2,111 @@
 
 window.Settings = (() => {
 
-  function get(key)      { return localStorage.getItem(key) || ''; }
-  function set(key, val) { if (val) localStorage.setItem(key, val); else localStorage.removeItem(key); }
+  const K = {
+    gemini:         'gemini_key',
+    twitchToken:    'twitch_oauth_token',
+    twitchClientId: 'twitch_client_id',
+    twitchSecret:   'twitch_client_secret',
+    twitchLogin:    'twitch_user_login',
+    twitchUserId:   'twitch_user_id',
+    ghToken:        'gh_token',
+    ghOwner:        'gh_owner',
+    ghRepo:         'gh_repo',
+  };
 
-  function getAll() {
-    return {
-      geminiKey:   get('gemini_key'),
-      twitchToken: get('twitch_oauth_token'),
-      ghToken:     get('gh_token'),
-      ghOwner:     get('gh_owner'),
-      ghRepo:      get('gh_repo'),
-    };
-  }
+  const get = key      => localStorage.getItem(K[key]) || '';
+  const set = (key, v) => v ? localStorage.setItem(K[key], v) : localStorage.removeItem(K[key]);
 
-  function hasGemini()  { return !!get('gemini_key'); }
-  function hasTwitch()  { return !!get('twitch_oauth_token'); }
-  function hasGitHub()  { return !!(get('gh_token') && get('gh_owner') && get('gh_repo')); }
+  const hasTwitch  = () => !!get('twitchToken');
+  const hasGemini  = () => !!get('gemini');
+  const hasGitHub  = () => !!(get('ghToken') && get('ghOwner') && get('ghRepo'));
+  const hasClientCreds = () => !!(get('twitchClientId') && get('twitchSecret'));
 
-  // ── Twitch OAuth implicit grant ───────────────────────────────────
   function connectTwitch() {
-    const clientId    = CONFIG.TWITCH_CLIENT_ID;
-    const redirectUri = encodeURIComponent(`${CONFIG.GITHUB_PAGES_URL}/auth-twitch.html`);
-    const scopes      = encodeURIComponent('user:read:email');
-    const url = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}`;
-    window.location.href = url;
+    const clientId    = get('twitchClientId');
+    const redirectUri = encodeURIComponent(window.location.origin + '/auth-twitch.html');
+    if (!clientId) { alert('Enter your Twitch Client ID in Settings first'); return; }
+    window.location.href =
+      `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=user:read:email`;
   }
 
   function disconnectTwitch() {
-    set('twitch_oauth_token', null);
-    set('twitch_user_login',  null);
-    set('twitch_user_id',     null);
+    set('twitchToken',  null);
+    set('twitchLogin',  null);
+    set('twitchUserId', null);
   }
 
-  // ── DOM wiring ────────────────────────────────────────────────────
+  // ── DOM ───────────────────────────────────────────────────────────
   function init() {
     const overlay  = document.getElementById('settings-overlay');
     const openBtn  = document.getElementById('btn-open-settings');
     const closeBtn = document.getElementById('settings-close');
     const saveBtn  = document.getElementById('settings-save');
-    const note     = document.getElementById('settings-save-note');
+    const feedback = document.getElementById('settings-feedback');
 
-    // Twitch connect buttons (header panel + setup view)
-    document.getElementById('btn-twitch-connect')
-      .addEventListener('click', connectTwitch);
-    document.getElementById('btn-twitch-connect-main')
-      .addEventListener('click', connectTwitch);
-    document.getElementById('btn-twitch-disconnect')
-      .addEventListener('click', () => {
-        disconnectTwitch();
-        _refreshTwitchState();
-        if (window.App) App.onTwitchDisconnected();
-      });
+    // Show redirect URI hint
+    document.getElementById('redirect-uri-display').textContent =
+      window.location.origin + '/auth-twitch.html';
 
-    function openPanel() {
-      document.getElementById('s-gemini-key').value   = get('gemini_key');
-      document.getElementById('s-github-token').value = get('gh_token');
-      document.getElementById('s-github-owner').value = get('gh_owner');
-      document.getElementById('s-github-repo').value  = get('gh_repo');
-      note.textContent = '';
+    function open() {
+      document.getElementById('s-twitch-client-id').value     = get('twitchClientId');
+      document.getElementById('s-twitch-client-secret').value = get('twitchSecret');
+      document.getElementById('s-gemini-key').value           = get('gemini');
+      document.getElementById('s-gh-token').value             = get('ghToken');
+      document.getElementById('s-gh-owner').value             = get('ghOwner');
+      document.getElementById('s-gh-repo').value              = get('ghRepo');
+      feedback.textContent = '';
       _refreshTwitchState();
       overlay.classList.remove('hidden');
     }
+    function close() { overlay.classList.add('hidden'); }
 
-    openBtn.addEventListener('click', openPanel);
-    closeBtn.addEventListener('click', () => overlay.classList.add('hidden'));
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.add('hidden'); });
+    openBtn.addEventListener('click', open);
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
 
     saveBtn.addEventListener('click', () => {
-      set('gemini_key', document.getElementById('s-gemini-key').value.trim());
-      set('gh_token',   document.getElementById('s-github-token').value.trim());
-      set('gh_owner',   document.getElementById('s-github-owner').value.trim());
-      set('gh_repo',    document.getElementById('s-github-repo').value.trim());
-      note.textContent = '✓ Saved';
-      setTimeout(() => { note.textContent = ''; }, 2000);
-      overlay.classList.add('hidden');
+      set('twitchClientId', document.getElementById('s-twitch-client-id').value.trim());
+      set('twitchSecret',   document.getElementById('s-twitch-client-secret').value.trim());
+      set('gemini',         document.getElementById('s-gemini-key').value.trim());
+      set('ghToken',        document.getElementById('s-gh-token').value.trim());
+      set('ghOwner',        document.getElementById('s-gh-owner').value.trim());
+      set('ghRepo',         document.getElementById('s-gh-repo').value.trim());
+      feedback.textContent = '✓ Saved';
+      setTimeout(() => { feedback.textContent = ''; close(); }, 1200);
       if (window.App) App.checkReady();
     });
 
-    // Setup view settings shortcut
-    document.getElementById('setup-open-settings')
-      .addEventListener('click', openPanel);
+    // Twitch connect buttons
+    ['btn-connect-twitch', 'btn-connect-twitch-setup'].forEach(id => {
+      document.getElementById(id)?.addEventListener('click', connectTwitch);
+    });
+
+    document.getElementById('btn-disconnect-twitch').addEventListener('click', () => {
+      disconnectTwitch();
+      _refreshTwitchState();
+      if (window.App) App.onTwitchDisconnected();
+    });
+
+    // Setup → open settings
+    document.getElementById('btn-setup-settings')?.addEventListener('click', open);
   }
 
   function _refreshTwitchState() {
-    const connected = document.getElementById('twitch-connected-state');
-    const disconnected = document.getElementById('twitch-disconnected-state');
-    const usernameEl = document.getElementById('twitch-username-display');
+    const conn   = document.getElementById('twitch-connected');
+    const disc   = document.getElementById('twitch-disconnected');
+    const dispEl = document.getElementById('twitch-user-display');
     if (hasTwitch()) {
-      const login = get('twitch_user_login');
-      usernameEl.textContent = login ? `@${login}` : 'Connected';
-      connected.classList.remove('hidden');
-      disconnected.classList.add('hidden');
+      const login = get('twitchLogin');
+      dispEl.textContent = login ? `@${login}` : 'Connected';
+      conn.classList.remove('hidden');
+      disc.classList.add('hidden');
     } else {
-      connected.classList.add('hidden');
-      disconnected.classList.remove('hidden');
+      conn.classList.add('hidden');
+      disc.classList.remove('hidden');
     }
   }
 
-  return { init, get, set, getAll, hasGemini, hasTwitch, hasGitHub, connectTwitch, disconnectTwitch };
+  return { init, get, set, hasTwitch, hasGemini, hasGitHub, hasClientCreds, connectTwitch, disconnectTwitch };
 
 })();

@@ -1,11 +1,10 @@
-// app.js — Main controller
+// app.js
 
 window.App = (() => {
 
   const state = {
     vods:          [],
-    selectedVod:   null,   // raw Twitch VOD metadata object
-    vodInfo:       null,   // { vodId, meta, variants, smallest, accessible }
+    vodInfo:       null,
     vodDurationSec: 0,
     segments:      [],
     overlayYT:     null,
@@ -13,83 +12,115 @@ window.App = (() => {
     cancelSignal:  null,
   };
 
-  // ── Boot ──────────────────────────────────────────────────────────
   async function init() {
     Settings.init();
     StyleProfiles.initPanel();
 
-    // Wire content-type → profile match note
+    _wireOverlayToggle();
+    _wireOverlayFiles();
+    _wirePromptInput();
+    _wireRefresh();
+    _wireAnalyse();
+    _wireBack();
+    _wireProcessButtons();
     document.getElementById('content-type').addEventListener('input', updateProfileMatchNote);
 
-    // Wire overlays
-    document.getElementById('overlay-youtube').addEventListener('change', e => {
-      const f = e.target.files[0];
-      state.overlayYT = f ? { blob: f, mime: f.type } : null;
-    });
-    document.getElementById('overlay-tiktok').addEventListener('change', e => {
-      const f = e.target.files[0];
-      state.overlayTT = f ? { blob: f, mime: f.type } : null;
-    });
-
-    // Wire highlight prompt → re-check ready
-    document.getElementById('highlight-prompt').addEventListener('input', checkReady);
-
-    // Wire VOD refresh
-    document.getElementById('btn-refresh-vods').addEventListener('click', loadRecentVods);
-
-    // Wire analyse
-    document.getElementById('btn-analyse').addEventListener('click', runAnalysis);
-    document.getElementById('btn-cancel').addEventListener('click', () => {
-      if (state.cancelSignal) state.cancelSignal.cancelled = true;
-    });
-
-    // Wire back
-    document.getElementById('btn-back').addEventListener('click', () => UI.showView('view-input'));
-
-    // Wire process buttons (delegated)
-    document.getElementById('highlight-cards').addEventListener('click', e => {
-      const btn = e.target.closest('.btn-process');
-      if (!btn) return;
-      runProcessClip(parseInt(btn.dataset.index));
-    });
-
-    // Decide initial view
     if (Settings.hasTwitch()) {
-      UI.showView('view-input');
-      loadRecentVods();
-      StyleProfiles.loadAll().catch(() => {});
+      _goToInput();
     } else {
       UI.showView('view-setup');
     }
   }
 
-  // ── Called when Twitch disconnects ────────────────────────────────
   function onTwitchDisconnected() {
-    state.vods          = [];
-    state.selectedVod   = null;
-    state.vodInfo       = null;
-    state.vodDurationSec = 0;
+    state.vodInfo = null;
+    state.vods    = [];
     UI.showView('view-setup');
   }
 
-  // ── Load the 3 most recent VODs ───────────────────────────────────
-  async function loadRecentVods() {
-    UI.setVodLoading('Loading your recent VODs…');
+  // ── Navigation ────────────────────────────────────────────────────
+  function _goToInput() {
+    UI.showView('view-input');
+    loadVods();
+    StyleProfiles.loadAll().catch(() => {});
+  }
+
+  // ── Collapsible overlays ──────────────────────────────────────────
+  function _wireOverlayToggle() {
+    const toggle = document.getElementById('toggle-overlays');
+    const body   = document.getElementById('overlays-body');
+    const arrow  = document.getElementById('toggle-arrow');
+    toggle.addEventListener('click', () => {
+      const open = !body.classList.contains('hidden');
+      body.classList.toggle('hidden', open);
+      arrow.classList.toggle('open', !open);
+    });
+  }
+
+  function _wireOverlayFiles() {
+    _fileInput('overlay-yt', 'overlay-yt-label', f => {
+      state.overlayYT = f ? { blob: f, mime: f.type } : null;
+    });
+    _fileInput('overlay-tt', 'overlay-tt-label', f => {
+      state.overlayTT = f ? { blob: f, mime: f.type } : null;
+    });
+  }
+
+  function _fileInput(inputId, labelId, onChange) {
+    const inp   = document.getElementById(inputId);
+    const label = document.getElementById(labelId);
+    const wrap  = inp?.closest('.file-input-wrap');
+    wrap?.addEventListener('click', () => inp.click());
+    inp?.addEventListener('change', () => {
+      const f = inp.files[0];
+      label.textContent = f?.name || 'Choose file…';
+      onChange(f || null);
+    });
+  }
+
+  function _wirePromptInput() {
+    document.getElementById('highlight-prompt').addEventListener('input', checkReady);
+  }
+
+  function _wireRefresh() {
+    document.getElementById('btn-refresh-vods').addEventListener('click', loadVods);
+  }
+
+  function _wireAnalyse() {
+    document.getElementById('btn-analyse').addEventListener('click', runAnalysis);
+    document.getElementById('btn-cancel').addEventListener('click', () => {
+      if (state.cancelSignal) state.cancelSignal.cancelled = true;
+    });
+  }
+
+  function _wireBack() {
+    document.getElementById('btn-back').addEventListener('click', () => UI.showView('view-input'));
+  }
+
+  function _wireProcessButtons() {
+    document.getElementById('clips-list').addEventListener('click', e => {
+      const btn = e.target.closest('.process-btn');
+      if (!btn) return;
+      runProcessClip(parseInt(btn.dataset.index));
+    });
+  }
+
+  // ── Load VODs ─────────────────────────────────────────────────────
+  async function loadVods() {
+    UI.setVodListState('Loading your recent VODs…');
     try {
       state.vods = await Twitch.fetchRecentVods(3);
       UI.renderVodList(state.vods, onVodSelected);
       checkReady();
     } catch (e) {
-      UI.setVodLoading(`Error: ${e.message}`);
+      UI.setVodListState(`Failed to load VODs: ${e.message}`);
     }
   }
 
-  // ── User selects a VOD from the list ─────────────────────────────
   async function onVodSelected(vod) {
-    state.selectedVod  = vod;
-    state.vodInfo      = null;
+    state.vodInfo       = null;
     state.vodDurationSec = Twitch.parseDuration(vod.duration || '');
-    document.getElementById('selected-vod-card').classList.add('hidden');
+    document.getElementById('selected-vod').classList.add('hidden');
     checkReady();
 
     try {
@@ -102,24 +133,20 @@ window.App = (() => {
     }
   }
 
-  // ── Analyse-ready gate ────────────────────────────────────────────
+  // ── Ready gate ────────────────────────────────────────────────────
   function checkReady() {
     if (!Settings.hasTwitch()) return;
     if (!Settings.hasGemini()) {
-      UI.setAnalyseState(false, 'Add your Gemini API key in Settings ⚙');
-      return;
+      UI.setAnalyseState(false, 'Add your Gemini API key in Settings ⚙'); return;
     }
     if (!state.vodInfo) {
-      UI.setAnalyseState(false, 'Select a VOD above');
-      return;
+      UI.setAnalyseState(false, 'Select a VOD above'); return;
     }
     if (!state.vodInfo.accessible) {
-      UI.setAnalyseState(false, 'This VOD has no stream quality ≤ 480p');
-      return;
+      UI.setAnalyseState(false, 'VOD has no stream quality at or below 480p'); return;
     }
     if (!document.getElementById('highlight-prompt').value.trim()) {
-      UI.setAnalyseState(false, 'Enter a highlight description');
-      return;
+      UI.setAnalyseState(false, 'Enter a highlight description'); return;
     }
     UI.setAnalyseState(true, '');
   }
@@ -127,28 +154,28 @@ window.App = (() => {
   function updateProfileMatchNote() {
     const val     = document.getElementById('content-type').value.trim();
     const profile = StyleProfiles.match(val);
-    document.getElementById('profile-match-note').textContent = profile
+    document.getElementById('profile-match').textContent = profile
       ? `✓ Matched: ${profile.name || val}`
       : val ? 'No profile matched — generic analysis' : '';
   }
 
-  // ── Stage 1: full analysis ────────────────────────────────────────
+  // ── Stage 1 ───────────────────────────────────────────────────────
   async function runAnalysis() {
     if (!state.vodInfo?.accessible) return;
 
-    const highlightPrompt  = document.getElementById('highlight-prompt').value.trim();
-    const targetClips      = parseInt(document.getElementById('target-clips').value)      || 5;
-    const targetDurationMin= parseFloat(document.getElementById('target-duration').value)  || 3;
-    const pacing           = document.getElementById('pacing-select').value;
-    const contentType      = document.getElementById('content-type').value.trim();
-    const styleProfile     = StyleProfiles.match(contentType);
+    const prompt   = document.getElementById('highlight-prompt').value.trim();
+    const clips    = parseInt(document.getElementById('target-clips').value)    || 5;
+    const duration = parseFloat(document.getElementById('target-duration').value) || 3;
+    const pacing   = document.getElementById('pacing').value;
+    const cType    = document.getElementById('content-type').value.trim();
+    const profile  = StyleProfiles.match(cType);
 
     state.cancelSignal = { cancelled: false };
     UI.showView('view-analysing');
     UI.setProgress('Starting…', '', 0);
 
     try {
-      UI.setProgress('Downloading stream…', 'Fetching at smallest resolution', 0.05);
+      UI.setProgress('Downloading stream…', 'Fetching smallest available resolution', 0.05);
 
       const vodBlob = await Twitch.downloadStreamAsBlob(
         state.vodInfo.smallest.url,
@@ -158,20 +185,20 @@ window.App = (() => {
 
       if (state.cancelSignal.cancelled) throw new Error('Cancelled');
 
-      const vodResolution = state.vodInfo.smallest.resolution || `${state.vodInfo.smallest.height}p`;
+      const vodRes = state.vodInfo.smallest.resolution || `${state.vodInfo.smallest.height}p`;
 
       state.segments = await Analysis.runAnalysis({
         vodBlob,
         vodMimeType:       'video/mp2t',
         vodDurationSec:    state.vodDurationSec,
-        vodResolution,
-        highlightPrompt,
-        targetClips,
-        targetDurationMin,
+        vodResolution:     vodRes,
+        highlightPrompt:   prompt,
+        targetClips:       clips,
+        targetDurationMin: duration,
         pacing,
-        styleProfile,
+        styleProfile:      profile,
         onStage: (label, sub, pct) => UI.setProgress(label, sub, 0.3 + pct * 0.7),
-        cancelSignal: state.cancelSignal,
+        cancelSignal:      state.cancelSignal,
       });
 
       UI.renderResults(state.segments, state.vodInfo);
@@ -183,11 +210,11 @@ window.App = (() => {
     }
   }
 
-  // ── Stage 2: process single clip ─────────────────────────────────
+  // ── Stage 2 ───────────────────────────────────────────────────────
   async function runProcessClip(index) {
     const seg = state.segments[index];
     if (!seg) return;
-    const btn = document.querySelector(`.btn-process[data-index="${index}"]`);
+    const btn = document.querySelector(`.process-btn[data-index="${index}"]`);
     if (btn) btn.disabled = true;
 
     UI.setCardStatus(index, 'Starting…', 'running');
@@ -216,7 +243,6 @@ window.App = (() => {
 
       UI.setCardStatus(index, `${result.outputs.length} file(s) ready`, 'done');
       UI.setCardDownloads(index, result.outputs);
-
     } catch (e) {
       UI.setCardStatus(index, `Error: ${e.message}`, 'error');
       if (btn) btn.disabled = false;

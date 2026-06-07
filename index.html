@@ -6,266 +6,296 @@
   <title>Highlight Hunter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=DM+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
 
-  <!-- ── SETTINGS PANEL ───────────────────────────────────────────── -->
+  <!-- ════════════════════════════════════════════════════════════════
+       SETTINGS DRAWER
+  ════════════════════════════════════════════════════════════════ -->
   <div id="settings-overlay" class="overlay hidden">
-    <div class="panel settings-panel">
-      <div class="panel-header">
-        <span class="panel-title">Settings</span>
-        <button class="icon-btn" id="settings-close">✕</button>
+    <div class="drawer">
+      <div class="drawer-header">
+        <span class="drawer-title">Settings</span>
+        <button class="close-btn" id="settings-close">✕</button>
       </div>
-      <div class="panel-body">
+      <div class="drawer-body">
 
-        <div class="settings-section">
-          <p class="section-label">Twitch</p>
-          <div id="twitch-connected-state" class="hidden">
-            <div class="connected-row">
-              <div class="connected-badge">
-                <span class="connected-dot"></span>
-                <span id="twitch-username-display">Connected</span>
-              </div>
-              <button class="btn btn-ghost btn-sm" id="btn-twitch-disconnect">Disconnect</button>
+        <div class="settings-group">
+          <div class="settings-group-label">Twitch</div>
+
+          <!-- Connected state -->
+          <div id="twitch-connected" class="connection-row hidden">
+            <div class="connection-info">
+              <span class="connection-dot"></span>
+              <span id="twitch-user-display">Connected</span>
             </div>
+            <button class="pill-btn pill-btn--ghost" id="btn-disconnect-twitch">Disconnect</button>
           </div>
-          <div id="twitch-disconnected-state">
-            <button class="btn btn-twitch" id="btn-twitch-connect">
-              <span>Connect Twitch</span>
-            </button>
-            <p class="field-hint">Opens Twitch login in this tab. Returns here automatically.</p>
+
+          <!-- Disconnected state -->
+          <div id="twitch-disconnected">
+            <div class="field">
+              <label>Client ID</label>
+              <input type="text"     id="s-twitch-client-id"     placeholder="xxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Client Secret</label>
+              <input type="password" id="s-twitch-client-secret" placeholder="xxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+            </div>
+            <p class="field-note">From <a href="https://dev.twitch.tv/console/apps" target="_blank">dev.twitch.tv/console/apps</a> — add <code id="redirect-uri-display"></code> as a redirect URI</p>
+            <button class="pill-btn pill-btn--twitch" id="btn-connect-twitch">Connect Twitch</button>
           </div>
         </div>
 
-        <div class="settings-section">
-          <p class="section-label">Gemini</p>
-          <div class="field-group">
+        <div class="settings-divider"></div>
+
+        <div class="settings-group">
+          <div class="settings-group-label">Gemini</div>
+          <div class="field">
             <label>API Key</label>
             <input type="password" id="s-gemini-key" placeholder="AIza…" autocomplete="off" />
-            <p class="field-hint">From <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></p>
           </div>
+          <p class="field-note">From <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a></p>
         </div>
 
-        <div class="settings-section">
-          <p class="section-label">GitHub <span class="section-note">— for style profile storage</span></p>
-          <div class="field-group">
+        <div class="settings-divider"></div>
+
+        <div class="settings-group">
+          <div class="settings-group-label">GitHub <span class="label-note">for style profile storage</span></div>
+          <div class="field">
             <label>Personal Access Token</label>
-            <input type="password" id="s-github-token" placeholder="ghp_…" autocomplete="off" />
-            <p class="field-hint">Settings → Developer Settings → Personal Access Tokens → classic → <code>repo</code> scope only</p>
+            <input type="password" id="s-gh-token" placeholder="ghp_…" autocomplete="off" />
           </div>
+          <p class="field-note">Settings → Developer Settings → Personal Access Tokens (classic) → <code>repo</code> scope</p>
           <div class="field-row">
-            <div class="field-group flex-1">
+            <div class="field">
               <label>Owner</label>
-              <input type="text" id="s-github-owner" placeholder="your-username" autocomplete="off" />
+              <input type="text" id="s-gh-owner" placeholder="username" autocomplete="off" />
             </div>
-            <div class="field-group flex-1">
+            <div class="field">
               <label>Repo</label>
-              <input type="text" id="s-github-repo" placeholder="highlight-hunter" autocomplete="off" />
+              <input type="text" id="s-gh-repo" placeholder="highlight-hunter" autocomplete="off" />
             </div>
           </div>
         </div>
 
-        <button class="btn btn-primary" id="settings-save">Save</button>
-        <p class="save-note" id="settings-save-note"></p>
+        <button class="save-btn" id="settings-save">Save Settings</button>
+        <p class="save-feedback" id="settings-feedback"></p>
+
       </div>
     </div>
   </div>
 
-  <!-- ── STYLE PROFILE PANEL ──────────────────────────────────────── -->
-  <div id="profile-overlay" class="overlay hidden">
-    <div class="panel profile-panel">
-      <div class="panel-header">
-        <span class="panel-title">Style Profiles</span>
-        <button class="icon-btn" id="profile-close">✕</button>
+  <!-- ════════════════════════════════════════════════════════════════
+       STYLE PROFILES DRAWER
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="profiles-overlay" class="overlay hidden">
+    <div class="drawer">
+      <div class="drawer-header">
+        <span class="drawer-title">Style Profiles</span>
+        <button class="close-btn" id="profiles-close">✕</button>
       </div>
-      <div class="panel-body">
+      <div class="drawer-body">
 
-        <div id="profiles-list-section">
-          <p class="section-label">Saved Profiles</p>
-          <div id="profiles-empty" class="empty-state">No profiles yet</div>
-          <ul id="profiles-list" class="profiles-list hidden"></ul>
-        </div>
-
-        <hr class="divider" />
-
-        <p class="section-label">Create New Profile</p>
-        <p class="helper-text">Upload an existing edited Short. Gemini watches it and generates a reusable editing style profile saved to your GitHub repo.</p>
-
-        <div class="field-group">
-          <label>Profile Name</label>
-          <input type="text" id="p-profile-name" placeholder="e.g. dbd-funny-moments" />
-        </div>
-        <div class="field-group">
-          <label>Reference Short (video file)</label>
-          <div class="file-drop" id="profile-file-drop">
-            <input type="file" id="p-profile-video" accept="video/*" />
-            <span id="profile-file-label">Choose a video file…</span>
+        <div id="profiles-saved">
+          <div class="settings-group-label">Saved</div>
+          <div id="profiles-list-wrap">
+            <p class="empty-note" id="profiles-empty">No profiles yet</p>
+            <ul class="profiles-list hidden" id="profiles-list"></ul>
           </div>
         </div>
-        <button class="btn btn-primary" id="profile-generate-btn">Analyse &amp; Save Profile</button>
-        <div id="profile-status" class="status-block hidden"></div>
+
+        <div class="settings-divider"></div>
+
+        <div class="settings-group">
+          <div class="settings-group-label">Create New</div>
+          <p class="field-note" style="margin-bottom:4px">Upload an edited Short. Gemini analyses the editing style and saves a reusable profile to your GitHub repo.</p>
+          <div class="field">
+            <label>Profile Name</label>
+            <input type="text" id="p-name" placeholder="e.g. dbd-funny-moments" />
+          </div>
+          <div class="field">
+            <label>Reference Short</label>
+            <div class="file-input-wrap" id="p-file-wrap">
+              <input type="file" id="p-file" accept="video/*" />
+              <span id="p-file-label">Choose video…</span>
+            </div>
+          </div>
+          <button class="pill-btn pill-btn--accent" id="btn-create-profile">Analyse &amp; Save</button>
+          <div class="status-box hidden" id="profile-status"></div>
+        </div>
+
       </div>
     </div>
   </div>
 
-  <!-- ── MAIN APP ──────────────────────────────────────────────────── -->
+  <!-- ════════════════════════════════════════════════════════════════
+       APP
+  ════════════════════════════════════════════════════════════════ -->
   <div id="app">
 
-    <header class="app-header">
-      <div class="header-left">
-        <div class="logo-mark">▶</div>
-        <h1 class="app-title">Highlight<span class="accent">Hunter</span></h1>
+    <!-- Header -->
+    <header id="app-header">
+      <div class="header-brand">
+        <div class="brand-mark">▶</div>
+        <span class="brand-name">Highlight<span class="brand-accent">Hunter</span></span>
       </div>
-      <div class="header-right">
-        <button class="icon-btn header-btn" id="btn-open-profile" title="Style Profiles">⊞</button>
-        <button class="icon-btn header-btn" id="btn-open-settings" title="Settings">⚙</button>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="btn-open-profiles" title="Style Profiles">⊞</button>
+        <button class="header-icon-btn" id="btn-open-settings" title="Settings">⚙</button>
       </div>
     </header>
 
-    <!-- ── VIEW: SETUP (no Twitch connected) ────────────────────── -->
-    <main id="view-setup" class="view hidden">
-      <div class="setup-layout">
-        <div class="setup-card">
-          <div class="setup-icon">▶</div>
-          <h2 class="setup-title">Connect Twitch to get started</h2>
-          <p class="setup-sub">Highlight Hunter needs access to your Twitch account to load your recent VODs.</p>
-          <button class="btn btn-twitch btn-lg" id="btn-twitch-connect-main">Connect Twitch</button>
-          <p class="setup-hint">Also add your Gemini API key in <button class="link-btn" id="setup-open-settings">Settings ⚙</button></p>
+    <!-- ── SETUP VIEW ─────────────────────────────────────────────── -->
+    <main id="view-setup" class="view active">
+      <div class="setup-screen">
+        <div class="setup-content">
+          <div class="setup-logo">▶</div>
+          <h1 class="setup-heading">Highlight Hunter</h1>
+          <p class="setup-body">Connect your Twitch account and add your Gemini API key to get started. Your three most recent VODs will load automatically.</p>
+          <button class="pill-btn pill-btn--twitch pill-btn--lg" id="btn-connect-twitch-setup">Connect Twitch</button>
+          <button class="text-btn" id="btn-setup-settings">Open Settings ⚙</button>
         </div>
       </div>
     </main>
 
-    <!-- ── VIEW: INPUT ───────────────────────────────────────────── -->
+    <!-- ── INPUT VIEW ─────────────────────────────────────────────── -->
     <main id="view-input" class="view hidden">
-      <div class="input-layout">
+      <div class="input-screen">
 
         <!-- Recent VODs -->
-        <section class="card">
-          <div class="card-title-row">
-            <h2 class="card-title">Your Recent VODs</h2>
-            <button class="btn btn-ghost btn-sm" id="btn-refresh-vods">↻ Refresh</button>
+        <section class="section">
+          <div class="section-header">
+            <h2 class="section-title">Recent VODs</h2>
+            <button class="ghost-btn" id="btn-refresh-vods">↻ Refresh</button>
           </div>
           <div id="vod-list" class="vod-list">
-            <div class="vod-loading">Loading VODs…</div>
+            <div class="vod-list-state">Loading your VODs…</div>
           </div>
         </section>
 
-        <!-- Selected VOD info -->
-        <div id="selected-vod-card" class="selected-vod hidden">
-          <div class="selected-vod-inner">
-            <img id="selected-thumb" src="" alt="" />
-            <div class="selected-vod-info">
-              <p class="selected-vod-title" id="selected-title"></p>
-              <p class="selected-vod-meta" id="selected-meta"></p>
-              <div class="quality-row">
-                <span class="quality-badge" id="quality-badge"></span>
-                <span class="quality-warn hidden" id="quality-warn"></span>
-              </div>
+        <!-- Selected VOD -->
+        <div id="selected-vod" class="selected-vod hidden">
+          <img id="sel-thumb" src="" alt="" />
+          <div class="sel-info">
+            <div class="sel-title" id="sel-title"></div>
+            <div class="sel-meta"  id="sel-meta"></div>
+            <div class="sel-quality">
+              <span class="quality-pill" id="sel-quality"></span>
+              <span class="quality-error hidden" id="sel-quality-error"></span>
             </div>
           </div>
         </div>
 
-        <!-- Highlight Prompt -->
-        <section class="card" id="prompt-section">
-          <h2 class="card-title">Highlight Prompt</h2>
-          <div class="field-group">
+        <!-- Prompt -->
+        <section class="section">
+          <h2 class="section-title">Highlight Prompt</h2>
+          <div class="field">
             <label>What to find</label>
-            <textarea id="highlight-prompt" rows="3" placeholder="e.g. funny moments and big plays, kills and chases, hype reactions, educational commentary"></textarea>
+            <textarea id="highlight-prompt" rows="3" placeholder="e.g. funny moments and big plays, kills and chases, hype reactions, educational commentary…"></textarea>
           </div>
-          <div class="field-row three-col">
-            <div class="field-group">
-              <label>Target clips</label>
+          <div class="field-row three">
+            <div class="field">
+              <label>Clips</label>
               <input type="number" id="target-clips" value="5" min="1" max="30" />
             </div>
-            <div class="field-group">
+            <div class="field">
               <label>Duration (min)</label>
               <input type="number" id="target-duration" value="3" min="0.5" max="30" step="0.5" />
             </div>
-            <div class="field-group">
+            <div class="field">
               <label>Pacing</label>
-              <select id="pacing-select">
+              <select id="pacing">
                 <option value="fast">Fast</option>
                 <option value="medium" selected>Medium</option>
                 <option value="slow">Slow</option>
               </select>
             </div>
           </div>
-          <div class="field-group">
-            <label>Content type <span class="label-hint">matches a style profile if one exists</span></label>
+          <div class="field">
+            <label>Content type <span class="label-aside">matches a style profile if one exists</span></label>
             <input type="text" id="content-type" placeholder="e.g. dbd-funny-moments" />
-            <p class="profile-match-note" id="profile-match-note"></p>
+            <p class="profile-match" id="profile-match"></p>
           </div>
         </section>
 
-        <!-- CTA Overlays -->
-        <section class="card">
-          <h2 class="card-title">CTA Overlays <span class="optional-tag">optional</span></h2>
-          <div class="field-row">
-            <div class="field-group flex-1">
-              <label>YouTube (GIF or alpha MP4)</label>
-              <input type="file" id="overlay-youtube" accept="video/mp4,image/gif" />
-            </div>
-            <div class="field-group flex-1">
-              <label>TikTok (GIF or alpha MP4)</label>
-              <input type="file" id="overlay-tiktok" accept="video/mp4,image/gif" />
-            </div>
-          </div>
-        </section>
-
-        <div class="analyse-row">
-          <button class="btn btn-analyse" id="btn-analyse" disabled>
-            <span>⚡ Analyse VOD</span>
+        <!-- Overlays -->
+        <section class="section section--collapsed">
+          <button class="collapsible-toggle" id="toggle-overlays">
+            <span>CTA Overlays</span>
+            <span class="optional-tag">optional</span>
+            <span class="toggle-arrow" id="toggle-arrow">›</span>
           </button>
+          <div class="collapsible-body hidden" id="overlays-body">
+            <div class="field-row">
+              <div class="field">
+                <label>YouTube (GIF or alpha MP4)</label>
+                <div class="file-input-wrap" id="overlay-yt-wrap">
+                  <input type="file" id="overlay-yt" accept="video/mp4,image/gif" />
+                  <span id="overlay-yt-label">Choose file…</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>TikTok (GIF or alpha MP4)</label>
+                <div class="file-input-wrap" id="overlay-tt-wrap">
+                  <input type="file" id="overlay-tt" accept="video/mp4,image/gif" />
+                  <span id="overlay-tt-label">Choose file…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Analyse CTA -->
+        <div class="analyse-cta">
+          <button class="analyse-btn" id="btn-analyse" disabled>⚡ Analyse VOD</button>
           <p class="analyse-hint" id="analyse-hint">Select a VOD first</p>
         </div>
 
       </div>
     </main>
 
-    <!-- ── VIEW: ANALYSING ───────────────────────────────────────── -->
+    <!-- ── ANALYSING VIEW ─────────────────────────────────────────── -->
     <main id="view-analysing" class="view hidden">
-      <div class="analysing-layout">
-        <div class="spinner"></div>
-        <p class="analysing-stage" id="analysing-stage">Preparing…</p>
-        <p class="analysing-sub" id="analysing-sub"></p>
-        <div class="progress-wrap">
-          <div class="progress-bar" id="progress-bar"></div>
+      <div class="progress-screen">
+        <div class="progress-spinner"></div>
+        <p class="progress-stage" id="progress-stage">Preparing…</p>
+        <p class="progress-sub"   id="progress-sub"></p>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
         </div>
-        <button class="btn btn-ghost" id="btn-cancel">Cancel</button>
+        <button class="ghost-btn" id="btn-cancel">Cancel</button>
       </div>
     </main>
 
-    <!-- ── VIEW: RESULTS ─────────────────────────────────────────── -->
+    <!-- ── RESULTS VIEW ───────────────────────────────────────────── -->
     <main id="view-results" class="view hidden">
       <div class="results-topbar">
-        <button class="btn btn-ghost btn-sm" id="btn-back">← Back</button>
-        <div class="summary-bar" id="summary-bar">
+        <button class="ghost-btn ghost-btn--sm" id="btn-back">← Back</button>
+        <div class="results-summary" id="results-summary">
           <span id="sum-clips"></span>
-          <span class="sep">·</span>
+          <span class="sum-dot">·</span>
           <span id="sum-duration"></span>
-          <span class="sep">·</span>
-          <span id="sum-output"></span>
         </div>
       </div>
-      <div class="results-layout">
-        <div class="preview-col">
-          <div class="preview-wrap">
+      <div class="results-body">
+        <div class="preview-pane">
+          <div class="preview-frame-wrap">
             <iframe id="vod-preview" src="" frameborder="0" allowfullscreen></iframe>
           </div>
-          <p class="preview-hint" id="preview-hint">Tap a card to seek</p>
+          <p class="preview-label" id="preview-label">Tap a clip to preview</p>
         </div>
-        <div class="cards-col">
-          <div class="cards-scroll" id="highlight-cards"></div>
+        <div class="clips-pane">
+          <div class="clips-list" id="clips-list"></div>
         </div>
       </div>
     </main>
 
-  </div>
+  </div><!-- /#app -->
 
   <script src="ffmpeg.js"></script>
-  <script src="js/config.js"></script>
   <script src="js/github.js"></script>
   <script src="js/settings.js"></script>
   <script src="js/twitch.js"></script>
@@ -276,5 +306,6 @@
   <script src="js/clip-processor.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/app.js"></script>
+
 </body>
 </html>
