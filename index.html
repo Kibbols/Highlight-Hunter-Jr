@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Highlight Hunter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+  <!-- ── SETTINGS PANEL ───────────────────────────────────────────── -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="panel settings-panel">
+      <div class="panel-header">
+        <span class="panel-title">Settings</span>
+        <button class="icon-btn" id="settings-close">✕</button>
+      </div>
+      <div class="panel-body">
+        <div class="field-group">
+          <label>Gemini API Key</label>
+          <input type="password" id="s-gemini-key" placeholder="AIza…" autocomplete="off" />
+        </div>
+        <div class="field-group">
+          <label>Twitch OAuth Token</label>
+          <input type="password" id="s-twitch-token" placeholder="oauth:…" autocomplete="off" />
+        </div>
+        <div class="field-group">
+          <label>Twitch Client ID</label>
+          <input type="text" id="s-twitch-client-id" placeholder="xxxxxxxxxxxxxx" autocomplete="off" />
+        </div>
+        <hr class="divider" />
+        <p class="section-label">GitHub (for style profile storage)</p>
+        <div class="field-group">
+          <label>GitHub Token (repo write scope)</label>
+          <input type="password" id="s-github-token" placeholder="ghp_…" autocomplete="off" />
+        </div>
+        <div class="field-group">
+          <label>Repo Owner</label>
+          <input type="text" id="s-github-owner" placeholder="your-username" />
+        </div>
+        <div class="field-group">
+          <label>Repo Name</label>
+          <input type="text" id="s-github-repo" placeholder="highlight-hunter" />
+        </div>
+        <button class="btn btn-primary" id="settings-save">Save Settings</button>
+        <p class="save-note" id="settings-save-note"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STYLE PROFILE CREATOR PANEL ─────────────────────────────── -->
+  <div id="profile-overlay" class="overlay hidden">
+    <div class="panel profile-panel">
+      <div class="panel-header">
+        <span class="panel-title">Create Style Profile</span>
+        <button class="icon-btn" id="profile-close">✕</button>
+      </div>
+      <div class="panel-body">
+        <p class="helper-text">Upload an existing edited Short. Gemini will watch it and generate a reusable style profile.</p>
+        <div class="field-group">
+          <label>Profile Name / Content Type</label>
+          <input type="text" id="p-profile-name" placeholder="e.g. dbd-funny-moments" />
+        </div>
+        <div class="field-group">
+          <label>Reference Short (video file)</label>
+          <input type="file" id="p-profile-video" accept="video/*" />
+        </div>
+        <div id="profile-existing-list" class="existing-profiles hidden">
+          <p class="section-label">Existing profiles (will be consolidated)</p>
+          <ul id="profile-names-list"></ul>
+        </div>
+        <button class="btn btn-primary" id="profile-generate-btn">Analyse &amp; Generate Profile</button>
+        <div id="profile-status" class="status-block hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MAIN APP ──────────────────────────────────────────────────── -->
+  <div id="app">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-mark">▶</div>
+        <h1 class="app-title">Highlight<span class="accent">Hunter</span></h1>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn header-btn" id="btn-open-profile" title="Style Profiles">⊞</button>
+        <button class="icon-btn header-btn" id="btn-open-settings" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <!-- ── VIEW: INPUT ───────────────────────────────────────────── -->
+    <main id="view-input" class="view active">
+      <div class="input-layout">
+
+        <section class="card vod-card">
+          <h2 class="card-title">VOD</h2>
+          <div class="field-group">
+            <label>Twitch VOD URL or ID</label>
+            <div class="input-row">
+              <input type="text" id="vod-url" placeholder="https://www.twitch.tv/videos/…  or  2345678901" />
+              <button class="btn btn-secondary" id="btn-fetch-vod">Fetch</button>
+            </div>
+          </div>
+          <div id="vod-quality-info" class="quality-info hidden">
+            <div class="quality-badge" id="quality-badge-text"></div>
+            <p id="quality-warning" class="quality-warning hidden"></p>
+          </div>
+          <div id="vod-meta" class="vod-meta hidden">
+            <div class="vod-thumb-wrap">
+              <img id="vod-thumb" src="" alt="" />
+            </div>
+            <div class="vod-details">
+              <p class="vod-title" id="vod-title-text"></p>
+              <p class="vod-sub" id="vod-duration-text"></p>
+              <p class="vod-sub" id="vod-date-text"></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card prompt-card">
+          <h2 class="card-title">Highlight Prompt</h2>
+          <div class="field-group">
+            <label>What to find</label>
+            <textarea id="highlight-prompt" rows="3" placeholder="e.g. funny moments and big plays, kills and chases, hype reactions, educational commentary"></textarea>
+          </div>
+          <div class="prompt-row">
+            <div class="field-group flex-1">
+              <label>Target clips</label>
+              <input type="number" id="target-clips" value="5" min="1" max="30" />
+            </div>
+            <div class="field-group flex-1">
+              <label>Target duration (min)</label>
+              <input type="number" id="target-duration" value="3" min="0.5" max="30" step="0.5" />
+            </div>
+            <div class="field-group flex-1">
+              <label>Pacing</label>
+              <select id="pacing-select">
+                <option value="fast">Fast</option>
+                <option value="medium" selected>Medium</option>
+                <option value="slow">Slow</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-group">
+            <label>Content type <span class="label-hint">(matches style profile if one exists)</span></label>
+            <input type="text" id="content-type" placeholder="e.g. dbd-funny-moments" />
+            <p class="profile-match-note" id="profile-match-note"></p>
+          </div>
+        </section>
+
+        <section class="card overlay-card">
+          <h2 class="card-title">CTA Overlays <span class="optional-tag">optional</span></h2>
+          <div class="overlay-row">
+            <div class="field-group flex-1">
+              <label>YouTube overlay (GIF or MP4 w/ alpha)</label>
+              <input type="file" id="overlay-youtube" accept="video/mp4,image/gif" />
+            </div>
+            <div class="field-group flex-1">
+              <label>TikTok overlay (GIF or MP4 w/ alpha)</label>
+              <input type="file" id="overlay-tiktok" accept="video/mp4,image/gif" />
+            </div>
+          </div>
+        </section>
+
+        <div class="analyse-row">
+          <button class="btn btn-analyse" id="btn-analyse" disabled>
+            <span class="btn-icon">⚡</span> Analyse VOD
+          </button>
+          <p class="analyse-hint" id="analyse-hint">Fetch a VOD first</p>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ── VIEW: ANALYSING ───────────────────────────────────────── -->
+    <main id="view-analysing" class="view hidden">
+      <div class="analysing-layout">
+        <div class="spinner-wrap">
+          <div class="spinner"></div>
+        </div>
+        <p class="analysing-stage" id="analysing-stage">Preparing…</p>
+        <p class="analysing-sub" id="analysing-sub"></p>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <button class="btn btn-ghost" id="btn-cancel-analysis">Cancel</button>
+      </div>
+    </main>
+
+    <!-- ── VIEW: RESULTS ─────────────────────────────────────────── -->
+    <main id="view-results" class="view hidden">
+
+      <div class="results-top-bar">
+        <button class="btn btn-ghost btn-sm" id="btn-back-to-input">← New VOD</button>
+        <div class="summary-bar" id="summary-bar">
+          <span id="sum-clips"></span>
+          <span class="dot">·</span>
+          <span id="sum-duration"></span>
+          <span class="dot">·</span>
+          <span id="sum-output"></span>
+        </div>
+      </div>
+
+      <div class="results-layout">
+
+        <!-- Preview iframe column -->
+        <div class="preview-col">
+          <div class="preview-wrap">
+            <iframe
+              id="vod-preview"
+              src=""
+              frameborder="0"
+              allowfullscreen
+              title="VOD Preview">
+            </iframe>
+          </div>
+          <p class="preview-label" id="preview-label">Tap a highlight to seek</p>
+        </div>
+
+        <!-- Card list column -->
+        <div class="cards-col">
+          <div class="cards-scroll" id="highlight-cards"></div>
+        </div>
+
+      </div>
+    </main>
+
+  </div><!-- /#app -->
+
+  <!-- FFmpeg.wasm (non-threaded) — add these files to your repo -->
+  <script src="ffmpeg.js"></script>
+
+  <!-- App modules -->
+  <script src="js/github.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/twitch.js"></script>
+  <script src="js/gemini.js"></script>
+  <script src="js/style-profiles.js"></script>
+  <script src="js/analysis.js"></script>
+  <script src="js/ffmpeg-handler.js"></script>
+  <script src="js/clip-processor.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
