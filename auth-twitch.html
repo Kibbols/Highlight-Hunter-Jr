@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connecting Twitch…</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0b;
+      color: #f0f0f4;
+      font-family: 'Syne', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .icon { font-size: 48px; }
+    .title { font-size: 22px; font-weight: 800; }
+    .sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      color: #a8a8b8;
+    }
+    .error { color: #e84040; }
+  </style>
+</head>
+<body>
+  <div class="icon" id="icon">⏳</div>
+  <div class="title" id="title">Connecting Twitch…</div>
+  <div class="sub" id="sub"></div>
+  <script>
+    const icon  = document.getElementById('icon');
+    const title = document.getElementById('title');
+    const sub   = document.getElementById('sub');
+
+    // Twitch implicit grant returns token in URL hash
+    const hash   = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const token  = params.get('access_token');
+    const error  = params.get('error');
+
+    if (error) {
+      icon.textContent  = '✗';
+      title.textContent = 'Twitch connection failed';
+      sub.textContent   = params.get('error_description') || error;
+      sub.classList.add('error');
+    } else if (token) {
+      localStorage.setItem('twitch_oauth_token', token);
+      icon.textContent  = '✓';
+      title.textContent = 'Twitch connected!';
+      sub.textContent   = 'Redirecting…';
+      setTimeout(() => { window.location.href = 'index.html'; }, 800);
+    } else {
+      icon.textContent  = '✗';
+      title.textContent = 'No token received';
+      sub.textContent   = 'Try connecting again from the main page.';
+      sub.classList.add('error');
+    }
+  </script>
+</body>
+</html>

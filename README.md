@@ -1,12 +1,29 @@
 # Highlight Hunter
 
-Personal Twitch VOD highlight tool. Finds, crops, and exports 9:16 clips for YouTube Shorts / TikTok using Gemini AI and FFmpeg.wasm — runs entirely in the browser from GitHub Pages, no server required.
+Personal Twitch VOD highlight tool. Finds, crops, and exports 9:16 clips using Gemini AI and FFmpeg.wasm. Runs entirely in the browser from GitHub Pages — no server required.
 
-## Setup
+---
 
-### 1. Add FFmpeg.wasm files
+## One-time setup
 
-Copy these four files from your existing AI Clip Editor repo into the **root** of this repo:
+### 1. Edit `js/config.js`
+
+Open `js/config.js` and fill in two values:
+
+```js
+TWITCH_CLIENT_ID: 'your_client_id_here',
+GITHUB_PAGES_URL: 'https://yourusername.github.io/highlight-hunter',
+```
+
+**Getting a Twitch Client ID:**
+1. Go to https://dev.twitch.tv/console/apps
+2. Register a new application (any name, category: Website Integration)
+3. Add `https://yourusername.github.io/highlight-hunter/auth-twitch.html` as OAuth redirect URL
+4. Copy the Client ID
+
+### 2. Add FFmpeg.wasm files
+
+Copy these four files from your existing AI Clip Editor tool into the repo **root**:
 
 ```
 ffmpeg.js
@@ -15,86 +32,76 @@ ffmpeg-core.js
 ffmpeg-core.wasm
 ```
 
-These are the non-threaded v0.11.x build. Do not use the threaded build — it requires SharedArrayBuffer headers that GitHub Pages cannot serve.
+### 3. Enable GitHub Pages
 
-### 2. Deploy to GitHub Pages
+Repo Settings → Pages → Source: main branch, root `/`
 
-Enable GitHub Pages in your repo settings → source: `main` branch, root `/`.
+### 4. Open the tool
 
-### 3. Open the tool and configure Settings
+- Click ⚙ Settings and add:
+  - **Gemini API key** — from https://aistudio.google.com/app/apikey
+  - **GitHub Personal Access Token** — GitHub → Settings → Developer Settings → Personal Access Tokens (classic) → `repo` scope only
+  - **GitHub Owner** and **Repo** name
+- Click **Connect Twitch** — logs you in via Twitch OAuth, returns automatically
 
-Click ⚙ in the top-right and enter:
-
-| Field | Where to get it |
-|---|---|
-| Gemini API Key | [Google AI Studio](https://aistudio.google.com/app/apikey) |
-| Twitch OAuth Token | Your existing token (without `oauth:` prefix, or with — both work) |
-| Twitch Client ID | Your Twitch app's Client ID |
-| GitHub Token | Personal access token with `repo` scope (for style profiles) |
-| GitHub Owner | Your GitHub username |
-| GitHub Repo | This repo's name |
-
-All credentials are stored in `localStorage` — never sent anywhere except the respective APIs.
+---
 
 ## Usage
 
-### Finding Highlights
-
-1. Paste a Twitch VOD URL or ID and click **Fetch**
-2. The tool shows the smallest available stream resolution (e.g. `160p`) — this is what Gemini will see
-3. If no quality ≤ 480p is available, the VOD is blocked from processing
-4. Enter your highlight description, target clip count, duration, and pacing
-5. Optionally enter a content type to match a style profile
+**Finding highlights:**
+1. Your 3 most recent VODs load automatically — tap one to select it
+2. The smallest available stream quality is shown (e.g. `160p`) — this is what Gemini sees
+3. VODs with no quality ≤ 480p are not selectable
+4. Fill in your highlight description, clip count, duration, pacing
+5. Optionally enter a content type to match a saved style profile
 6. Click **Analyse VOD**
 
-### Processing Clips
-
-Each highlight card shows timestamp, label, rank (1–5), and reason.
-
-- Click a card to seek the embedded preview to that moment
-- Click **Process Clip** to run Stage 2: Gemini determines the 9:16 crop, FFmpeg extracts and crops the full-resolution clip
+**Processing clips:**
+- Tap any result card to seek the preview to that moment
+- Click **Process Clip** to run Stage 2: Gemini determines the 9:16 crop, FFmpeg extracts and crops the full-res clip
 - Download links appear on the card when done
 
-### CTA Overlays
+**CTA Overlays:**
+Upload a GIF or alpha-channel MP4 for YouTube and/or TikTok before processing. If provided, two output files are produced per clip.
 
-Upload a GIF or alpha-channel MP4 for YouTube and/or TikTok before processing. If provided, processing produces two output files per clip (one per platform).
+**Style Profiles:**
+Click ⊞ → upload a reference Short → name it → click Analyse & Save. Saved to your GitHub repo automatically. The more reference clips you add, the more refined the style becomes.
 
-### Style Profiles
+---
 
-Click ⊞ to open the style profile creator. Upload an existing edited Short, name the content type, and click **Analyse & Generate Profile**. The profile is saved to `Reference Data/` in your repo via GitHub API and auto-loaded on next visit.
+## Resolution rules
 
-The more reference Shorts you feed it, the more refined the output style becomes — each new reference consolidates into one unified profile, not appended blocks.
+- Gemini **always** sees the smallest available quality — never above 480p
+- If 160p exists, 160p is used — always the absolute smallest
+- FFmpeg always processes the full-resolution original
+- Gemini returns crop positions as proportions (0.0–1.0), never pixels
+- FFmpeg scales those to the actual frame at processing time
 
-## Resolution Rules
+---
 
-- Gemini **always** sees the smallest available stream quality — never anything above 480p
-- If 160p is available, 160p is used. Always the absolute smallest
-- FFmpeg always works with the full-resolution original
-- Gemini returns crop positions as **proportions** (0.0–1.0), never pixels
-- FFmpeg scales those proportions to the actual full-resolution frame at processing time
-
-## File Structure
+## File structure
 
 ```
 highlight-hunter/
 ├── index.html
+├── auth-twitch.html        ← Twitch OAuth callback
 ├── css/app.css
 ├── js/
-│   ├── app.js              # Main controller
-│   ├── settings.js         # Credentials
-│   ├── twitch.js           # Twitch API + m3u8
-│   ├── gemini.js           # Gemini Files API + generateContent
-│   ├── analysis.js         # Stage 1 analysis
-│   ├── clip-processor.js   # Stage 2 per-clip
-│   ├── ffmpeg-handler.js   # FFmpeg.wasm wrapper
-│   ├── style-profiles.js   # Profile management
-│   ├── github.js           # GitHub API read/write
-│   └── ui.js               # Results screen
+│   ├── config.js           ← EDIT THIS FIRST
+│   ├── app.js
+│   ├── settings.js
+│   ├── twitch.js
+│   ├── gemini.js
+│   ├── analysis.js
+│   ├── clip-processor.js
+│   ├── ffmpeg-handler.js
+│   ├── style-profiles.js
+│   ├── github.js
+│   └── ui.js
 ├── Reference Data/
-│   ├── manifest.json       # Profile index
-│   └── *.json              # Style profiles (auto-created)
-├── ffmpeg.js               # ← ADD FROM YOUR EXISTING TOOL
-├── 814.ffmpeg.js           # ← ADD FROM YOUR EXISTING TOOL
-├── ffmpeg-core.js          # ← ADD FROM YOUR EXISTING TOOL
-└── ffmpeg-core.wasm        # ← ADD FROM YOUR EXISTING TOOL
+│   └── manifest.json
+├── ffmpeg.js               ← ADD FROM EXISTING TOOL
+├── 814.ffmpeg.js           ← ADD FROM EXISTING TOOL
+├── ffmpeg-core.js          ← ADD FROM EXISTING TOOL
+└── ffmpeg-core.wasm        ← ADD FROM EXISTING TOOL
 ```
