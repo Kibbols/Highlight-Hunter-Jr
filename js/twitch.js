@@ -1,227 +1,197 @@
-// twitch.js — Twitch Helix API + m3u8 quality fetching
+// twitch.js — Twitch Helix API, recent VODs, m3u8 quality fetch
 
 window.Twitch = (() => {
 
-  // ── Helpers ───────────────────────────────────────────────────────
-
-  function getHeaders() {
-    const token  = Settings.get('twitchToken').replace(/^oauth:/, '');
-    const client = Settings.get('twitchClient');
+  function _headers() {
+    const token  = Settings.get('twitch_oauth_token');
+    const client = CONFIG.TWITCH_CLIENT_ID;
     return {
       'Authorization': `Bearer ${token}`,
       'Client-Id': client,
     };
   }
 
-  function extractVodId(input) {
-    input = input.trim();
-    // Pure numeric ID
-    if (/^\d+$/.test(input)) return input;
-    // URL forms: /videos/12345  or  ?video=v12345
-    const match = input.match(/(?:videos\/|video=v?)(\d+)/i);
-    if (match) return match[1];
-    return null;
-  }
-
-  // ── Helix: fetch VOD metadata ─────────────────────────────────────
-  async function fetchVodMeta(vodId) {
-    const res = await fetch(
-      `https://api.twitch.tv/helix/videos?id=${vodId}`,
-      { headers: getHeaders() }
-    );
-    if (res.status === 401) throw new Error('Twitch auth failed — check your OAuth token and Client ID in Settings');
+  // ── Fetch current user info, cache login + id ─────────────────────
+  async function fetchCurrentUser() {
+    const res = await fetch('https://api.twitch.tv/helix/users', { headers: _headers() });
+    if (res.status === 401) throw new Error('Twitch token expired — reconnect in Settings');
     if (!res.ok) throw new Error(`Twitch API error: ${res.status}`);
     const data = await res.json();
-    if (!data.data || !data.data.length) throw new Error('VOD not found or not accessible');
-    return data.data[0];
+    const user = data.data?.[0];
+    if (!user) throw new Error('Could not load Twitch user');
+    Settings.set('twitch_user_login', user.login);
+    Settings.set('twitch_user_id',    user.id);
+    return user;
   }
 
-  // ── m3u8 manifest fetch + quality parsing ─────────────────────────
-  // Twitch CDN URLs: https://usher.twitchapps.com/vod/{vodId}
-  // Requires a signed token — obtained from Helix API access token flow
-  // We attempt the Helix approach first; if CDN rejects, fall back to
-  // the GQL sig+token approach (isolated here for easy swap-out)
-
-  async function fetchM3u8Url(vodId) {
-    // Helix returns a thumbnail_url we can derive stream CDN from, but
-    // the actual m3u8 requires a signed token via GQL.
-    // Using isolated GQL call for signed token only (not full data scrape)
-    return await _gqlGetVodToken(vodId);
+  // ── Fetch recent VODs for the current user ────────────────────────
+  async function fetchRecentVods(count = 3) {
+    let userId = Settings.get('twitch_user_id');
+    if (!userId) {
+      const user = await fetchCurrentUser();
+      userId = user.id;
+    }
+    const res = await fetch(
+      `https://api.twitch.tv/helix/videos?user_id=${userId}&first=${count}&type=archive`,
+      { headers: _headers() }
+    );
+    if (res.status === 401) throw new Error('Twitch token expired — reconnect in Settings');
+    if (!res.ok) throw new Error(`Twitch API error: ${res.status}`);
+    const data = await res.json();
+    return data.data || [];
   }
 
-  async function _gqlGetVodToken(vodId) {
-    const clientId = Settings.get('twitchClient');
-    const token    = Settings.get('twitchToken').replace(/^oauth:/, '');
-
-    const payload = {
-      operationName: 'PlaybackAccessToken_Template',
-      query: `query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!) {
-        streamPlaybackAccessToken(channelName: $login, params: {platform: "web", playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isLive) { value signature __typename }
-        videoPlaybackAccessToken(id: $vodID, params: {platform: "web", playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isVod) { value signature __typename }
-      }`,
-      variables: {
-        isLive: false,
-        login: '',
-        isVod: true,
-        vodID: vodId,
-        playerType: 'site',
-      },
-    };
+  // ── Get signed m3u8 URL via GQL (isolated, easy to swap) ─────────
+  async function _getSignedM3u8Url(vodId) {
+    const token  = Settings.get('twitch_oauth_token');
+    const client = CONFIG.TWITCH_CLIENT_ID;
 
     const res = await fetch('https://gql.twitch.tv/gql', {
       method: 'POST',
       headers: {
-        'Client-Id': clientId,
+        'Client-Id': client,
         'Authorization': `OAuth ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        operationName: 'PlaybackAccessToken_Template',
+        query: `query PlaybackAccessToken_Template($login:String!,$isLive:Boolean!,$vodID:ID!,$isVod:Boolean!,$playerType:String!){
+          videoPlaybackAccessToken(id:$vodID,params:{platform:"web",playerBackend:"mediaplayer",playerType:$playerType})@include(if:$isVod){value signature __typename}
+        }`,
+        variables: { isLive: false, login: '', isVod: true, vodID: vodId, playerType: 'site' },
+      }),
     });
-
     if (!res.ok) throw new Error(`GQL token fetch failed: ${res.status}`);
     const data = await res.json();
-    const tok = data?.data?.videoPlaybackAccessToken;
-    if (!tok) throw new Error('Could not obtain VOD playback token');
-
+    const tok  = data?.data?.videoPlaybackAccessToken;
+    if (!tok) throw new Error('Could not get VOD playback token');
     const sig   = encodeURIComponent(tok.signature);
     const value = encodeURIComponent(tok.value);
     return `https://usher.twitchapps.com/vod/${vodId}?nauth=${value}&nauthsig=${sig}&allow_source=true&allow_spectre=true`;
   }
 
-  // Parse m3u8 master playlist — returns array of { label, resolution, bandwidth, url }
-  async function parseQualities(m3u8Url) {
-    const res = await fetch(m3u8Url);
+  // ── Parse quality variants from m3u8 master playlist ─────────────
+  async function fetchQualities(vodId) {
+    const masterUrl = await _getSignedM3u8Url(vodId);
+    const res = await fetch(masterUrl);
     if (!res.ok) throw new Error(`m3u8 fetch failed: ${res.status}`);
     const text = await res.text();
-    return parseM3u8Variants(text, m3u8Url);
+    return _parseVariants(text, masterUrl);
   }
 
-  function parseM3u8Variants(text, baseUrl) {
+  function _parseVariants(text, baseUrl) {
     const lines    = text.split('\n').map(l => l.trim()).filter(Boolean);
     const variants = [];
-
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i].startsWith('#EXT-X-STREAM-INF')) continue;
-      const infoLine = lines[i];
-      const urlLine  = lines[i + 1];
-      if (!urlLine || urlLine.startsWith('#')) continue;
-
-      const resolution = _parseAttr(infoLine, 'RESOLUTION') || '';
-      const bandwidth  = parseInt(_parseAttr(infoLine, 'BANDWIDTH') || '0');
-      const video      = _parseAttr(infoLine, 'VIDEO') || '';
-
-      // height in pixels
-      const heightMatch = resolution.match(/\d+x(\d+)/);
-      const height = heightMatch ? parseInt(heightMatch[1]) : 9999;
-
-      // Build absolute URL if relative
-      const url = urlLine.startsWith('http') ? urlLine : new URL(urlLine, baseUrl).href;
-
-      variants.push({ label: video || resolution, resolution, height, bandwidth, url });
+      const info   = lines[i];
+      const url    = lines[i + 1];
+      if (!url || url.startsWith('#')) continue;
+      const res    = _attr(info, 'RESOLUTION') || '';
+      const bw     = parseInt(_attr(info, 'BANDWIDTH') || '0');
+      const hMatch = res.match(/\d+x(\d+)/);
+      const height = hMatch ? parseInt(hMatch[1]) : 9999;
+      const wMatch = res.match(/(\d+)x\d+/);
+      const width  = wMatch ? parseInt(wMatch[1]) : 0;
+      variants.push({
+        label:      _attr(info, 'VIDEO') || res || `${height}p`,
+        resolution: res,
+        height, width, bandwidth: bw,
+        url: url.startsWith('http') ? url : new URL(url, baseUrl).href,
+      });
     }
-
-    // Sort ascending by height (smallest first)
-    variants.sort((a, b) => a.height - b.height);
-    return variants;
+    return variants.sort((a, b) => a.height - b.height); // ascending: smallest first
   }
 
-  function _parseAttr(line, attr) {
-    const match = line.match(new RegExp(`${attr}=(?:"([^"]+)"|([^,\\s]+))`));
-    return match ? (match[1] || match[2]) : null;
+  function _attr(line, key) {
+    const m = line.match(new RegExp(`${key}=(?:"([^"]+)"|([^,\\s]+))`));
+    return m ? (m[1] || m[2]) : null;
   }
 
-  // ── Quality selection: smallest at or below 480p ──────────────────
-  function selectSmallestQuality(variants) {
-    const eligible = variants.filter(v => v.height <= 480);
-    if (!eligible.length) return null;
-    return eligible[0]; // already sorted ascending
+  // ── Select smallest quality at or below 480p ──────────────────────
+  function selectSmallest(variants) {
+    return variants.find(v => v.height <= 480) || null;
   }
 
-  // ── Download m3u8 stream as Blob (for Gemini upload) ─────────────
-  // Fetches the chunklist and all .ts segments, assembles into a single Blob
-  // This can be large — progress callback(loaded, total) optional
-  async function downloadStreamAsBlob(qualityUrl, onProgress, cancelSignal) {
-    // Fetch the variant playlist
-    const res = await fetch(qualityUrl);
-    if (!res.ok) throw new Error(`Stream playlist fetch failed: ${res.status}`);
+  // ── Download a stream as a single Blob (all segments) ────────────
+  async function downloadStreamAsBlob(variantUrl, onProgress, cancelSignal) {
+    const res = await fetch(variantUrl);
+    if (!res.ok) throw new Error(`Playlist fetch failed: ${res.status}`);
     const text = await res.text();
 
-    // Extract segment URLs
-    const lines   = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const segments = lines.filter(l => !l.startsWith('#') && (l.includes('.ts') || l.includes('.aac')));
-    const baseUrl  = qualityUrl.substring(0, qualityUrl.lastIndexOf('/') + 1);
-    const segUrls  = segments.map(s => s.startsWith('http') ? s : baseUrl + s);
+    const base  = variantUrl.substring(0, variantUrl.lastIndexOf('/') + 1);
+    const segs  = text.split('\n')
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith('#'))
+      .map(l => l.startsWith('http') ? l : base + l);
 
-    if (!segUrls.length) throw new Error('No segments found in stream playlist');
+    if (!segs.length) throw new Error('No segments found in playlist');
 
-    const blobs = [];
-    for (let i = 0; i < segUrls.length; i++) {
-      if (cancelSignal && cancelSignal.cancelled) throw new Error('Cancelled');
-      const segRes = await fetch(segUrls[i]);
-      if (!segRes.ok) throw new Error(`Segment ${i} fetch failed: ${segRes.status}`);
-      blobs.push(await segRes.arrayBuffer());
-      if (onProgress) onProgress(i + 1, segUrls.length);
+    const parts = [];
+    for (let i = 0; i < segs.length; i++) {
+      if (cancelSignal?.cancelled) throw new Error('Cancelled');
+      const r = await fetch(segs[i]);
+      if (!r.ok) throw new Error(`Segment ${i + 1} failed: ${r.status}`);
+      parts.push(await r.arrayBuffer());
+      onProgress && onProgress(i + 1, segs.length);
     }
-
-    return new Blob(blobs, { type: 'video/mp2t' });
+    return new Blob(parts, { type: 'video/mp2t' });
   }
 
-  // ── Full flow: given VOD URL/ID → returns VodInfo object ──────────
-  async function loadVod(input, onProgress) {
-    const vodId = extractVodId(input);
-    if (!vodId) throw new Error('Could not parse VOD ID from input');
-
-    // Step 1: metadata
-    const meta = await fetchVodMeta(vodId);
-
-    // Step 2: get m3u8 URL
-    const m3u8Url = await fetchM3u8Url(vodId);
-
-    // Step 3: parse qualities
-    const variants = await parseQualities(m3u8Url);
-    if (!variants.length) throw new Error('No quality variants found in m3u8 manifest');
-
-    const smallest = selectSmallestQuality(variants);
-
+  // ── Load a full VodInfo object from a VOD metadata object ─────────
+  async function loadVodInfo(vodMeta) {
+    const vodId   = vodMeta.id;
+    const variants = await fetchQualities(vodId);
+    const smallest = selectSmallest(variants);
     return {
       vodId,
-      meta,
+      meta:       vodMeta,
       variants,
-      smallest,       // null if nothing ≤ 480p
-      m3u8Url,        // master playlist URL (full quality available for FFmpeg)
+      smallest,
       accessible: !!smallest,
     };
   }
 
-  // Format seconds → H:MM:SS or M:SS
-  function formatDuration(seconds) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
+  // ── Helpers ───────────────────────────────────────────────────────
+  function parseDuration(str) {
+    if (!str) return 0;
+    let s = 0;
+    const h = str.match(/(\d+)h/); if (h) s += parseInt(h[1]) * 3600;
+    const m = str.match(/(\d+)m/); if (m) s += parseInt(m[1]) * 60;
+    const x = str.match(/(\d+)s/); if (x) s += parseInt(x[1]);
+    return s;
+  }
+
+  function fmtDuration(sec) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
     if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
     return `${m}:${String(s).padStart(2,'0')}`;
   }
 
-  // Parse Twitch duration string "3h12m45s" → seconds
-  function parseTwitchDuration(str) {
-    if (!str) return 0;
-    let secs = 0;
-    const h = str.match(/(\d+)h/); if (h) secs += parseInt(h[1]) * 3600;
-    const m = str.match(/(\d+)m/); if (m) secs += parseInt(m[1]) * 60;
-    const s = str.match(/(\d+)s/); if (s) secs += parseInt(s[1]);
-    return secs;
+  function fmtDate(str) {
+    if (!str) return '';
+    return new Date(str).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function thumbUrl(meta, w = 320, h = 180) {
+    return (meta.thumbnail_url || '')
+      .replace('%{width}', w)
+      .replace('%{height}', h);
   }
 
   return {
-    extractVodId,
-    fetchVodMeta,
-    fetchM3u8Url,
-    parseQualities,
-    selectSmallestQuality,
+    fetchCurrentUser,
+    fetchRecentVods,
+    fetchQualities,
+    selectSmallest,
     downloadStreamAsBlob,
-    loadVod,
-    formatDuration,
-    parseTwitchDuration,
+    loadVodInfo,
+    parseDuration,
+    fmtDuration,
+    fmtDate,
+    thumbUrl,
   };
 
 })();

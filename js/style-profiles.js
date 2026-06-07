@@ -1,12 +1,12 @@
-// style-profiles.js — Load profiles from GitHub, match by name, create new profiles
+// style-profiles.js
 
 window.StyleProfiles = (() => {
 
-  let _profiles = {};     // { name: profileObj }
-  let _manifest = [];     // [ 'name1', 'name2', ... ]
+  let _profiles = {};
+  let _manifest = [];
 
-  // ── Load all profiles at startup ──────────────────────────────────
   async function loadAll() {
+    if (!Settings.hasGitHub()) return;
     try {
       _manifest = await GH.readManifest();
       _profiles = {};
@@ -15,86 +15,66 @@ window.StyleProfiles = (() => {
         if (p) _profiles[name] = p;
       }
     } catch (e) {
-      console.warn('Style profiles: could not load from GitHub —', e.message);
-      _manifest = [];
-      _profiles = {};
+      console.warn('Style profiles: load failed —', e.message);
     }
   }
 
-  // ── Match profile by content type string (fuzzy) ──────────────────
   function match(contentType) {
     if (!contentType || !_manifest.length) return null;
-    const query = contentType.toLowerCase().replace(/[\s_-]+/g, '-');
-    // Exact match first
-    if (_profiles[query]) return _profiles[query];
-    // Prefix / contains match
+    const q = contentType.toLowerCase().replace(/[\s_-]+/g, '-');
+    if (_profiles[q]) return _profiles[q];
     for (const name of _manifest) {
       const n = name.toLowerCase();
-      if (n.includes(query) || query.includes(n)) return _profiles[name];
+      if (n.includes(q) || q.includes(n)) return _profiles[name];
     }
     return null;
   }
 
-  function getProfileNames() { return _manifest.slice(); }
+  function getNames() { return _manifest.slice(); }
 
-  function profileAsPromptText(profile) {
+  function asPromptText(profile) {
     if (!profile) return '';
     return `\n\n--- STYLE PROFILE (${profile.name || 'custom'}) ---\n${JSON.stringify(profile, null, 2)}\n--- END STYLE PROFILE ---`;
   }
 
-  // ── Create a new profile from a reference Short ───────────────────
-  // videoBlob: the uploaded reference video
-  // profileName: string key for this profile
-  // existingProfiles: array of existing profile objects (for consolidation)
   async function createProfile(videoBlob, profileName, onStatus) {
-    onStatus('Uploading reference video to Gemini…');
+    if (!Settings.hasGitHub()) throw new Error('GitHub not configured in Settings — profile cannot be saved');
 
-    const fileUri = await Gemini.uploadFile(
-      videoBlob,
-      videoBlob.type || 'video/mp4',
-      `style-ref-${profileName}`
-    );
+    onStatus('Uploading reference video to Gemini…');
+    const fileUri = await Gemini.uploadFile(videoBlob, videoBlob.type || 'video/mp4', `style-ref-${profileName}`);
 
     onStatus('Analysing editing style…');
-
-    const existingList = _manifest.map(n => _profiles[n]).filter(Boolean);
-    const consolidateNote = existingList.length
-      ? `\n\nYou are CONSOLIDATING this new reference into the existing style knowledge. Existing profiles:\n${JSON.stringify(existingList, null, 2)}\n\nProduce ONE unified profile object, not appended blocks.`
+    const existing = _manifest.map(n => _profiles[n]).filter(Boolean);
+    const consolidate = existing.length
+      ? `\n\nCONSOLIDATE this new reference with the existing profiles below into ONE unified profile object:\n${JSON.stringify(existing, null, 2)}`
       : '';
 
-    const systemPrompt = `You are an expert short-form video editor analysing a reference clip to extract editorial style guidelines.${consolidateNote}`;
+    const result = await Gemini.generate(
+      [
+        { fileData: { mimeType: videoBlob.type || 'video/mp4', fileUri } },
+        { text: `Watch this short-form video and extract an editing style profile for content type "${profileName}".${consolidate}
 
-    const userPrompt = `Watch this short-form video clip and extract a detailed style profile JSON for content type "${profileName}".
-
-Return ONLY a valid JSON object with this structure:
+Return ONLY valid JSON:
 {
   "name": "${profileName}",
   "pacing": "fast|medium|slow",
   "avg_clip_duration_seconds": <number>,
   "cut_style": "hard|jump|transition",
-  "preferred_moments": ["list of moment types to prioritize"],
-  "avoid": ["list of moment types to avoid or cut"],
+  "preferred_moments": [],
+  "avoid": [],
   "energy_level": "high|medium|low",
   "commentary_weight": "heavy|moderate|minimal",
   "reaction_weight": "heavy|moderate|minimal",
   "gameplay_weight": "heavy|moderate|minimal",
-  "notes": "freeform editorial notes"
-}`;
-
-    const result = await Gemini.generate(
-      [
-        { fileData: { mimeType: videoBlob.type || 'video/mp4', fileUri } },
-        { text: userPrompt },
+  "notes": ""
+}` },
       ],
-      systemPrompt,
-      true // JSON mode
+      null, true
     );
 
-    onStatus('Saving profile to GitHub…');
-
+    onStatus('Saving to GitHub…');
     _profiles[profileName] = result;
     if (!_manifest.includes(profileName)) _manifest.push(profileName);
-
     await GH.writeProfile(profileName, result);
     await GH.writeManifest(_manifest);
 
@@ -102,65 +82,71 @@ Return ONLY a valid JSON object with this structure:
     return result;
   }
 
-  // ── Profile creator panel wiring ──────────────────────────────────
+  // ── Panel wiring ──────────────────────────────────────────────────
   function initPanel() {
-    const overlay    = document.getElementById('profile-overlay');
-    const openBtn    = document.getElementById('btn-open-profile');
-    const closeBtn   = document.getElementById('profile-close');
-    const genBtn     = document.getElementById('profile-generate-btn');
-    const statusEl   = document.getElementById('profile-status');
-    const nameInput  = document.getElementById('p-profile-name');
-    const videoInput = document.getElementById('p-profile-video');
-    const listEl     = document.getElementById('profile-names-list');
-    const listWrap   = document.getElementById('profile-existing-list');
+    const overlay  = document.getElementById('profile-overlay');
+    const openBtn  = document.getElementById('btn-open-profile');
+    const closeBtn = document.getElementById('profile-close');
+    const genBtn   = document.getElementById('profile-generate-btn');
+    const statusEl = document.getElementById('profile-status');
+    const nameIn   = document.getElementById('p-profile-name');
+    const fileIn   = document.getElementById('p-profile-video');
+    const fileDrop = document.getElementById('profile-file-drop');
+    const fileLabel= document.getElementById('profile-file-label');
+    const listEl   = document.getElementById('profiles-list');
+    const emptyEl  = document.getElementById('profiles-empty');
+
+    // File drop label update
+    fileIn.addEventListener('change', () => {
+      fileLabel.textContent = fileIn.files[0]?.name || 'Choose a video file…';
+    });
+    fileDrop.addEventListener('click', () => fileIn.click());
 
     function openPanel() {
-      // Populate existing profiles list
-      if (_manifest.length) {
-        listEl.innerHTML = '';
-        _manifest.forEach(n => {
-          const li = document.createElement('li');
-          li.textContent = n;
-          listEl.appendChild(li);
-        });
-        listWrap.classList.remove('hidden');
-      } else {
-        listWrap.classList.add('hidden');
-      }
+      _refreshList(listEl, emptyEl);
       statusEl.classList.add('hidden');
       statusEl.textContent = '';
       overlay.classList.remove('hidden');
     }
-
-    function closePanel() { overlay.classList.add('hidden'); }
-
     openBtn.addEventListener('click', openPanel);
-    closeBtn.addEventListener('click', closePanel);
-    overlay.addEventListener('click', e => { if (e.target === overlay) closePanel(); });
+    closeBtn.addEventListener('click', () => overlay.classList.add('hidden'));
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.add('hidden'); });
 
     genBtn.addEventListener('click', async () => {
-      const name  = nameInput.value.trim();
-      const file  = videoInput.files[0];
-      if (!name)  { alert('Please enter a profile name'); return; }
-      if (!file)  { alert('Please select a reference video'); return; }
-
+      const name = nameIn.value.trim();
+      const file = fileIn.files[0];
+      if (!name) { alert('Enter a profile name'); return; }
+      if (!file) { alert('Select a reference video'); return; }
       genBtn.disabled = true;
       statusEl.classList.remove('hidden');
-
       try {
-        await createProfile(file, name, msg => {
-          statusEl.textContent = msg;
-        });
-        // Update content-type match note on main form
+        await createProfile(file, name, msg => { statusEl.textContent = msg; });
+        _refreshList(listEl, emptyEl);
         if (window.App) App.updateProfileMatchNote();
       } catch (e) {
-        statusEl.textContent = `✗ Error: ${e.message}`;
+        statusEl.textContent = `✗ ${e.message}`;
       } finally {
         genBtn.disabled = false;
       }
     });
   }
 
-  return { loadAll, match, getProfileNames, profileAsPromptText, createProfile, initPanel };
+  function _refreshList(listEl, emptyEl) {
+    if (!_manifest.length) {
+      listEl.classList.add('hidden');
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+    emptyEl.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    listEl.innerHTML = '';
+    _manifest.forEach(name => {
+      const li = document.createElement('li');
+      li.textContent = name;
+      listEl.appendChild(li);
+    });
+  }
+
+  return { loadAll, match, getNames, asPromptText, createProfile, initPanel };
 
 })();
