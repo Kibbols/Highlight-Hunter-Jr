@@ -5,16 +5,23 @@ window.FFmpegHandler = (() => {
   let _ff     = null;
   let _loaded = false;
 
+  async function _toBlobURL(url, mimeType) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+    const blob = new Blob([await res.arrayBuffer()], { type: mimeType });
+    return URL.createObjectURL(blob);
+  }
+
   async function load() {
     if (_loaded) return;
     if (typeof FFmpegWASM === 'undefined') throw new Error('FFmpeg.wasm not found — add ffmpeg.js to repo root');
     const { FFmpeg } = FFmpegWASM;
     _ff = new FFmpeg();
+    _ff.on('log', ({ message }) => console.log('[FFmpeg]', message));
     const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
-    await _ff.load({
-      coreURL:  base + 'ffmpeg-core.js',
-      wasmURL:  base + 'ffmpeg-core.wasm',
-    });
+    const coreURL = await _toBlobURL(base + 'ffmpeg-core.js', 'text/javascript');
+    const wasmURL = await _toBlobURL(base + 'ffmpeg-core.wasm', 'application/wasm');
+    await _ff.load({ coreURL, wasmURL });
     _loaded = true;
   }
 
@@ -65,6 +72,8 @@ window.FFmpegHandler = (() => {
   async function remuxToMp4(tsBlob, onProgress) {
     await load();
     onProgress && onProgress('Remuxing to mp4…', 0.1);
+    console.log('[FFmpeg] remux input size:', tsBlob.size, 'type:', tsBlob.type);
+    if (!tsBlob || tsBlob.size === 0) throw new Error('Remux input blob is empty');
     await _write('remux_in.ts', tsBlob);
     await _ff.exec(['-i','remux_in.ts','-c','copy','-movflags','+faststart','remux_out.mp4']);
     const data = await _read('remux_out.mp4');
