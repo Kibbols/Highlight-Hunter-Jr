@@ -106,7 +106,7 @@ export default {
         const gqlRes = await fetch('https://gql.twitch.tv/gql', {
           method: 'POST',
           headers: {
-            'Client-Id':     env.TWITCH_CLIENT_ID,
+            'Client-Id':     'kimne78kx3ncx6brgo4mv6wki5h1ko',
             'Authorization': `OAuth ${access_token}`,
             'Content-Type':  'application/json',
           },
