@@ -149,7 +149,24 @@ window.Twitch = (() => {
     const parts = [];
     for (let i = 0; i < segs.length; i++) {
       if (cancelSignal?.cancelled) throw new Error('Cancelled');
-      const r = await _proxyFetch(segs[i]);
+      let r;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 20000);
+          r = await fetch(WORKER, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: segs[i] }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (r.ok) break;
+        } catch (e) {
+          if (attempt === 2) throw new Error(`Segment ${i + 1} failed after 3 attempts: ${e.message}`);
+          await new Promise(res => setTimeout(res, 1000));
+        }
+      }
       parts.push(await r.arrayBuffer());
       onProgress && onProgress(i + 1, segs.length);
     }
