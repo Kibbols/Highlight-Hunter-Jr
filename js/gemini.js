@@ -8,7 +8,7 @@ window.Gemini = (() => {
   const UPLOAD = `${BASE}/upload/v1beta`;
 
   function _key() {
-    const k = Settings.get('gemini_key');
+    const k = Settings.get('gemini');
     if (!k) throw new Error('Gemini API key not set — open Settings');
     return k;
   }
