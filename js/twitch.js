@@ -123,7 +123,11 @@ window.Twitch = (() => {
 
   // ── Download a stream as a single Blob (all segments) ────────────
   async function downloadStreamAsBlob(variantUrl, onProgress, cancelSignal) {
-    const res = await fetch(variantUrl);
+    const res = await fetch('https://highlightjr.portgamingsttv.workers.dev/proxy-m3u8', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: variantUrl }),
+    });
     if (!res.ok) throw new Error(`Playlist fetch failed: ${res.status}`);
     const text = await res.text();
 
