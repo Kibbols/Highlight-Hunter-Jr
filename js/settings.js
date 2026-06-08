@@ -17,16 +17,19 @@ window.Settings = (() => {
   const get = key      => localStorage.getItem(K[key]) || '';
   const set = (key, v) => v ? localStorage.setItem(K[key], v) : localStorage.removeItem(K[key]);
 
-  const hasTwitch  = () => !!get('twitchToken');
-  const hasGemini  = () => !!get('gemini');
-  const hasGitHub  = () => !!(get('ghToken') && get('ghOwner') && get('ghRepo'));
+  const hasTwitch      = () => !!get('twitchToken');
+  const hasGemini      = () => !!get('gemini');
+  const hasGitHub      = () => !!(get('ghToken') && get('ghOwner') && get('ghRepo'));
   const hasClientCreds = () => !!(get('twitchClientId') && get('twitchSecret'));
 
   function connectTwitch() {
-    const clientId    = get('twitchClientId');
+    const clientId = get('twitchClientId');
+    if (!clientId) {
+      // Shouldn't reach here normally — caller guards against it
+      return;
+    }
     const base        = window.location.href.replace(/\/[^/]*$/, '');
     const redirectUri = encodeURIComponent(base + '/auth-twitch.html');
-    if (!clientId) { alert('Enter your Twitch Client ID in Settings first'); return; }
     window.location.href =
       `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=user:read:email`;
   }
@@ -78,19 +81,30 @@ window.Settings = (() => {
       if (window.App) App.checkReady();
     });
 
-    // Twitch connect buttons
-    ['btn-connect-twitch', 'btn-connect-twitch-setup'].forEach(id => {
-      document.getElementById(id)?.addEventListener('click', connectTwitch);
-    });
+    // Settings panel connect button — fires OAuth directly (Client ID already saved)
+    document.getElementById('btn-connect-twitch')
+      ?.addEventListener('click', connectTwitch);
 
-    document.getElementById('btn-disconnect-twitch').addEventListener('click', () => {
-      disconnectTwitch();
-      _refreshTwitchState();
-      if (window.App) App.onTwitchDisconnected();
-    });
+    // Setup screen connect button — opens Settings if no Client ID yet, otherwise connects
+    document.getElementById('btn-connect-twitch-setup')
+      ?.addEventListener('click', () => {
+        if (!get('twitchClientId')) {
+          open();
+        } else {
+          connectTwitch();
+        }
+      });
 
-    // Setup → open settings
-    document.getElementById('btn-setup-settings')?.addEventListener('click', open);
+    document.getElementById('btn-disconnect-twitch')
+      ?.addEventListener('click', () => {
+        disconnectTwitch();
+        _refreshTwitchState();
+        if (window.App) App.onTwitchDisconnected();
+      });
+
+    // Setup screen → open settings shortcut
+    document.getElementById('btn-setup-settings')
+      ?.addEventListener('click', open);
   }
 
   function _refreshTwitchState() {
