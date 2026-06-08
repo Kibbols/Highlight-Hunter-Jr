@@ -30,7 +30,7 @@ window.Settings = (() => {
     }
     // Build redirect URI from the known GitHub Pages URL
     const redirectUri = encodeURIComponent('https://kibbols.github.io/Highlight-Hunter-Jr/auth-twitch.html');
-    const url = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=user:read:email`;
+    const url = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=user:read:email+user:read:broadcast+channel:read:vods+clips:edit`;
     console.log('[HH] Redirecting to Twitch OAuth:', url);
     window.location.href = url;
   }
