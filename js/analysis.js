@@ -17,7 +17,7 @@ window.Analysis = (() => {
 
   async function runAnalysis({
     vodBlob, vodMimeType, vodDurationSec, vodResolution,
-    highlightPrompt, targetClips, targetDurationMin, pacing,
+    highlightPrompt, targetClips, clipMinSec, clipMaxSec, pacing,
     styleProfile, onStage, cancelSignal,
   }) {
     onStage('Remuxing to mp4…', 'Converting for Gemini compatibility', 0.08);
@@ -33,13 +33,13 @@ window.Analysis = (() => {
 
     onStage('Building time blocks…', '', 0.35);
     const blocks = buildBlocks(vodDurationSec);
-    const targetSec = Math.round(targetDurationMin * 60);
+    const targetSec = clipMaxSec * targetClips;
     const styleText = StyleProfiles.asPromptText(styleProfile);
 
     const prompt = `You are an expert Twitch highlight editor. You are watching a low-resolution VOD (${vodResolution}) for analysis only.
 
 TASK: Find the best highlights matching: "${highlightPrompt}"
-TARGET: ${targetClips} clips, ~${targetSec} seconds total, pacing: ${pacing}
+TARGET: ${targetClips} clips, each between ${clipMinSec}–${clipMaxSec} seconds, pacing: ${pacing}
 ${styleText}
 
 VOD TIME BLOCKS:

@@ -165,7 +165,8 @@ window.App = (() => {
 
     const prompt   = document.getElementById('highlight-prompt').value.trim();
     const clips    = parseInt(document.getElementById('target-clips').value)    || 5;
-    const duration = parseFloat(document.getElementById('target-duration').value) || 3;
+    const clipMinSec = parseInt(document.getElementById('clip-min-sec').value) || 20;
+    const clipMaxSec = parseInt(document.getElementById('clip-max-sec').value) || 60;
     const pacing   = document.getElementById('pacing').value;
     const cType    = document.getElementById('content-type').value.trim();
     const profile  = StyleProfiles.match(cType);
@@ -194,7 +195,8 @@ window.App = (() => {
         vodResolution:     vodRes,
         highlightPrompt:   prompt,
         targetClips:       clips,
-        targetDurationMin: duration,
+        clipMinSec,
+        clipMaxSec,
         pacing,
         styleProfile:      profile,
         onStage: (label, sub, pct) => UI.setProgress(label, sub, 0.3 + pct * 0.7),
