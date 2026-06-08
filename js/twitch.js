@@ -41,8 +41,8 @@ window.Twitch = (() => {
     return data.data || [];
   }
 
-  // ── Get VOD m3u8 URL directly from browser via GQL (no Worker needed) ──
-  async function _getSignedM3u8Url(vodId) {
+  // ── Fetch VOD metadata from GQL including seekPreviewsURL ─────────
+  async function _getVodGqlData(vodId) {
     const res = await fetch('https://gql.twitch.tv/gql', {
       method: 'POST',
       headers: {
@@ -50,64 +50,77 @@ window.Twitch = (() => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        operationName: 'PlaybackAccessToken_Template',
-        query: `query PlaybackAccessToken_Template($vodID:ID!,$playerType:String!){
-          videoPlaybackAccessToken(id:$vodID,params:{platform:"web",playerBackend:"mediaplayer",playerType:$playerType})@include(if:true){value signature __typename}
-        }`,
-        variables: { vodID: vodId, playerType: 'site' },
+        query: `{ video(id: "${vodId}") { broadcastType, createdAt, seekPreviewsURL, owner { login } } }`,
       }),
     });
-
-    if (!res.ok) throw new Error(`GQL request failed: ${res.status}`);
+    if (!res.ok) throw new Error(`GQL metadata request failed: ${res.status}`);
     const data = await res.json();
-    const tok  = data?.data?.videoPlaybackAccessToken;
-    if (!tok) throw new Error(`No playback token from GQL: ${JSON.stringify(data?.errors)}`);
-
-    const sig = encodeURIComponent(tok.signature);
-    const val = encodeURIComponent(tok.value);
-    return `https://usher.twitchapps.com/vod/${vodId}?nauth=${val}&nauthsig=${sig}&allow_source=true&allow_spectre=true`;
+    const video = data?.data?.video;
+    if (!video) throw new Error(`GQL returned no video data for VOD ${vodId}`);
+    return video;
   }
 
-  // ── Parse quality variants from m3u8 master playlist ─────────────
+  // ── Build CDN quality URLs from GQL metadata (bypasses usher entirely) ──
   async function fetchQualities(vodId) {
-    const masterUrl = await _getSignedM3u8Url(vodId);
-    const res = await fetch('https://highlightjr.portgamingsttv.workers.dev/twitch-usher', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: masterUrl }),
-    });
-    if (!res.ok) throw new Error(`m3u8 fetch failed: ${res.status}`);
-    const text = await res.text();
-    return _parseVariants(text, masterUrl);
-  }
+    const vodData = await _getVodGqlData(vodId);
 
-  function _parseVariants(text, baseUrl) {
-    const lines    = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const variants = [];
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].startsWith('#EXT-X-STREAM-INF')) continue;
-      const info   = lines[i];
-      const url    = lines[i + 1];
-      if (!url || url.startsWith('#')) continue;
-      const res    = _attr(info, 'RESOLUTION') || '';
-      const bw     = parseInt(_attr(info, 'BANDWIDTH') || '0');
-      const hMatch = res.match(/\d+x(\d+)/);
-      const height = hMatch ? parseInt(hMatch[1]) : 9999;
-      const wMatch = res.match(/(\d+)x\d+/);
-      const width  = wMatch ? parseInt(wMatch[1]) : 0;
-      variants.push({
-        label:      _attr(info, 'VIDEO') || res || `${height}p`,
-        resolution: res,
-        height, width, bandwidth: bw,
-        url: url.startsWith('http') ? url : new URL(url, baseUrl).href,
-      });
+    if (!vodData.seekPreviewsURL) throw new Error('No seekPreviewsURL in GQL response');
+
+    const previewUrl   = new URL(vodData.seekPreviewsURL);
+    const domain       = previewUrl.host;
+    const paths        = previewUrl.pathname.split('/');
+    const sbIdx        = paths.findIndex(p => p.includes('storyboards'));
+    if (sbIdx < 1) throw new Error('Could not parse vodSpecialID from seekPreviewsURL');
+    const vodSpecialID = paths[sbIdx - 1];
+
+    const broadcastType = (vodData.broadcastType || 'archive').toLowerCase();
+    const createdAt     = new Date(vodData.createdAt);
+    const daysSince     = (Date.now() - createdAt.getTime()) / (1000 * 3600 * 24);
+
+    // Quality presets matching Twitch's standard offerings
+    const qualities = [
+      { key: 'chunked', label: '1080p60 (Source)', res: '1920x1080', fps: 60 },
+      { key: '1080p60',  label: '1080p60',          res: '1920x1080', fps: 60 },
+      { key: '720p60',   label: '720p60',            res: '1280x720',  fps: 60 },
+      { key: '720p30',   label: '720p30',            res: '1280x720',  fps: 30 },
+      { key: '480p30',   label: '480p30',            res: '854x480',   fps: 30 },
+      { key: '360p30',   label: '360p30',            res: '640x360',   fps: 30 },
+      { key: '160p30',   label: '160p30',            res: '284x160',   fps: 30 },
+    ];
+
+    function buildUrl(key) {
+      if (broadcastType === 'highlight') {
+        return `https://${domain}/${vodSpecialID}/${key}/highlight-${vodId}.m3u8`;
+      }
+      if (broadcastType === 'upload' && daysSince > 7) {
+        return `https://${domain}/${vodData.owner.login}/${vodId}/${vodSpecialID}/${key}/index-dvr.m3u8`;
+      }
+      return `https://${domain}/${vodSpecialID}/${key}/index-dvr.m3u8`;
     }
-    return variants.sort((a, b) => a.height - b.height); // ascending: smallest first
-  }
 
-  function _attr(line, key) {
-    const m = line.match(new RegExp(`${key}=(?:"([^"]+)"|([^,\\s]+))`));
-    return m ? (m[1] || m[2]) : null;
+    const variants = [];
+    for (const q of qualities) {
+      const url = buildUrl(q.key);
+      try {
+        const r = await fetch(url, { method: 'HEAD' });
+        if (r.ok) {
+          const [w, h] = q.res.split('x').map(Number);
+          variants.push({
+            label:      q.label,
+            resolution: q.res,
+            height:     h,
+            width:      w,
+            bandwidth:  0,
+            url,
+          });
+        }
+      } catch (_) {
+        // quality not available, skip
+      }
+    }
+
+    if (!variants.length) throw new Error('No accessible quality variants found for this VOD');
+    return variants.sort((a, b) => a.height - b.height); // ascending: smallest first
   }
 
   // ── Select smallest quality at or below 480p ──────────────────────
@@ -142,7 +155,7 @@ window.Twitch = (() => {
 
   // ── Load a full VodInfo object from a VOD metadata object ─────────
   async function loadVodInfo(vodMeta) {
-    const vodId   = vodMeta.id;
+    const vodId    = vodMeta.id;
     const variants = await fetchQualities(vodId);
     const smallest = selectSmallest(variants);
     return {
