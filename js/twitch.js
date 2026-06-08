@@ -44,7 +44,7 @@ window.Twitch = (() => {
   // ── Get signed m3u8 URL via GQL (isolated, easy to swap) ─────────
   async function _getSignedM3u8Url(vodId) {
     const token  = Settings.get('twitchToken');
-    const client = Settings.get('twitchClientId');
+    const client = 'kimne78kx3ncx6brgo4mv6wki5h1ko'; // GQL requires Twitch web client ID
 
     const res = await fetch('https://gql.twitch.tv/gql', {
       method: 'POST',
