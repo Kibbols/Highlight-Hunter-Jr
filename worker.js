@@ -40,12 +40,10 @@ export default {
       return err('Invalid JSON', 400);
     }
 
-    const url   = new URL(request.url);
-    const path  = url.pathname;
+    const url  = new URL(request.url);
+    const path = url.pathname;
 
     // ── /twitch-auth ─────────────────────────────────────────────────
-    // Exchanges an OAuth authorization code for an access token.
-    // Keeps the Client Secret server-side.
     if (path === '/twitch-auth') {
       const { code, redirect_uri } = body;
       if (!code || !redirect_uri) return err('Missing code or redirect_uri', 400);
@@ -74,7 +72,6 @@ export default {
     }
 
     // ── /twitch-refresh ──────────────────────────────────────────────
-    // Refreshes an expired access token using a stored refresh token.
     if (path === '/twitch-refresh') {
       const { refresh_token } = body;
       if (!refresh_token) return err('Missing refresh_token', 400);
@@ -102,8 +99,6 @@ export default {
     }
 
     // ── /twitch-vod-m3u8 ────────────────────────────────────────────
-    // Gets a signed m3u8 URL for a Twitch VOD via GQL.
-    // Must run server-side — GQL blocks browser requests.
     if (path === '/twitch-vod-m3u8') {
       const { vod_id, access_token } = body;
       if (!vod_id || !access_token) return err('Missing vod_id or access_token', 400);
@@ -123,9 +118,18 @@ export default {
             variables: { isLive: false, login: '', isVod: true, vodID: vod_id, playerType: 'site' },
           }),
         });
+
+        // Return full GQL response for debugging if token missing
         const gqlData = await gqlRes.json();
         const tok = gqlData?.data?.videoPlaybackAccessToken;
-        if (!tok) throw new Error('No playback token returned from GQL');
+        if (!tok) {
+          return json({
+            error: 'No playback token returned from GQL',
+            gql_status: gqlRes.status,
+            gql_response: gqlData,
+          }, 500);
+        }
+
         const sig = encodeURIComponent(tok.signature);
         const val = encodeURIComponent(tok.value);
         return json({
