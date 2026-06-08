@@ -75,7 +75,7 @@ window.FFmpegHandler = (() => {
     console.log('[FFmpeg] remux input size:', tsBlob.size, 'type:', tsBlob.type);
     if (!tsBlob || tsBlob.size === 0) throw new Error('Remux input blob is empty');
     await _write('remux_in.ts', tsBlob);
-    await _ff.exec(['-i','remux_in.ts','-c','copy','-movflags','+faststart','remux_out.mp4']);
+    await _ff.exec(['-allowed_extensions','ALL','-i','remux_in.ts','-c','copy','-bsf:a','aac_adtstoasc','-movflags','+faststart','remux_out.mp4']);
     const data = await _read('remux_out.mp4');
     await _unlink('remux_in.ts', 'remux_out.mp4');
     onProgress && onProgress('Remux complete', 1.0);
