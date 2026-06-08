@@ -41,53 +41,25 @@ window.Twitch = (() => {
     return data.data || [];
   }
 
-  // ── Get VOD m3u8 URL — tries multiple GQL client IDs, falls back to unauth ──
+  // ── Get VOD m3u8 URL via Cloudflare Worker (avoids CORS/GQL issues) ────
   async function _getSignedM3u8Url(vodId) {
-    const token = Settings.get('twitchToken');
+    const token  = Settings.get('twitchToken');
+    const worker = 'https://highlightjr.portgamingsttv.workers.dev/twitch-vod-m3u8';
 
-    // Try multiple known GQL client IDs — Twitch accepts different ones at different times
-    const clientIds = [
-      'kimne78kx3ncx6brgo4mv6wki5h1ko',
-      'kd1unb4b3q4t58fwlpcbzcbnm76a8fp',
-      'ue6znezmtgxup6ttf5e3yvboupbhfx6',
-    ];
+    const res = await fetch(worker, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vod_id: vodId, access_token: token }),
+    });
 
-    for (const client of clientIds) {
-      try {
-        const res = await fetch('https://gql.twitch.tv/gql', {
-          method: 'POST',
-          headers: {
-            'Client-Id': client,
-            'Authorization': `OAuth ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            operationName: 'PlaybackAccessToken_Template',
-            query: `query PlaybackAccessToken_Template($login:String!,$isLive:Boolean!,$vodID:ID!,$isVod:Boolean!,$playerType:String!){
-              videoPlaybackAccessToken(id:$vodID,params:{platform:"web",playerBackend:"mediaplayer",playerType:$playerType})@include(if:$isVod){value signature __typename}
-            }`,
-            variables: { isLive: false, login: '', isVod: true, vodID: vodId, playerType: 'site' },
-          }),
-        });
-        if (!res.ok) { console.warn(`[HH] GQL ${client} rejected: ${res.status}`); continue; }
-        const data = await res.json();
-        const tok  = data?.data?.videoPlaybackAccessToken;
-        if (!tok) { console.warn(`[HH] GQL ${client} returned no token`); continue; }
-        const sig   = encodeURIComponent(tok.signature);
-        const value = encodeURIComponent(tok.value);
-        return `https://usher.twitchapps.com/vod/${vodId}?nauth=${value}&nauthsig=${sig}&allow_source=true&allow_spectre=true`;
-      } catch (e) {
-        console.warn(`[HH] GQL ${client} error:`, e.message);
-      }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`VOD m3u8 fetch failed: ${err.error || res.status}`);
     }
 
-    // Fallback: unauthenticated usher URL (works for public non-sub-only VODs)
-    console.warn('[HH] All GQL attempts failed, trying unauthenticated usher URL');
-    const unauthUrl = `https://usher.twitchapps.com/vod/${vodId}?allow_source=true&allow_spectre=true`;
-    const testRes = await fetch(unauthUrl);
-    if (testRes.ok) return unauthUrl;
-
-    throw new Error('Could not get VOD stream URL — VOD may be subscriber-only or Twitch GQL is unavailable');
+    const data = await res.json();
+    if (!data.url) throw new Error('Worker returned no m3u8 URL');
+    return data.url;
   }
 
   // ── Parse quality variants from m3u8 master playlist ─────────────
