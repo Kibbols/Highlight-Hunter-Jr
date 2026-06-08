@@ -34,9 +34,9 @@
   --r-lg:  12px;
   --r-xl:  16px;
 
-  --f-head: 'Syne',    sans-serif;
-  --f-mono: 'DM Mono', monospace;
-  --f-body: 'Inter',   sans-serif;
+  --f-head: 'Geist', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', monospace;
+  --f-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   --ease: 130ms ease;
 }

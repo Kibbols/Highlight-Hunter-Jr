@@ -24,7 +24,8 @@ window.Settings = (() => {
 
   function connectTwitch() {
     const clientId    = get('twitchClientId');
-    const redirectUri = encodeURIComponent(window.location.origin + '/auth-twitch.html');
+    const base        = window.location.href.replace(/\/[^/]*$/, '');
+    const redirectUri = encodeURIComponent(base + '/auth-twitch.html');
     if (!clientId) { alert('Enter your Twitch Client ID in Settings first'); return; }
     window.location.href =
       `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=user:read:email`;
@@ -45,8 +46,8 @@ window.Settings = (() => {
     const feedback = document.getElementById('settings-feedback');
 
     // Show redirect URI hint
-    document.getElementById('redirect-uri-display').textContent =
-      window.location.origin + '/auth-twitch.html';
+    const _base = window.location.href.replace(/\/[^/]*$/, '');
+    document.getElementById('redirect-uri-display').textContent = _base + '/auth-twitch.html';
 
     function open() {
       document.getElementById('s-twitch-client-id').value     = get('twitchClientId');
