@@ -25,13 +25,14 @@ window.Settings = (() => {
   function connectTwitch() {
     const clientId = get('twitchClientId');
     if (!clientId) {
-      // Shouldn't reach here normally — caller guards against it
+      alert('No Twitch Client ID found. Please enter it in Settings and save first.');
       return;
     }
-    const base        = window.location.href.replace(/\/[^/]*$/, '');
-    const redirectUri = encodeURIComponent(base + '/auth-twitch.html');
-    window.location.href =
-      `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=user:read:email`;
+    // Build redirect URI from the known GitHub Pages URL
+    const redirectUri = encodeURIComponent('https://kibbols.github.io/Highlight-Hunter-Jr/auth-twitch.html');
+    const url = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=user:read:email`;
+    console.log('[HH] Redirecting to Twitch OAuth:', url);
+    window.location.href = url;
   }
 
   function disconnectTwitch() {
@@ -48,9 +49,9 @@ window.Settings = (() => {
     const saveBtn  = document.getElementById('settings-save');
     const feedback = document.getElementById('settings-feedback');
 
-    // Show redirect URI hint
-    const _base = window.location.href.replace(/\/[^/]*$/, '');
-    document.getElementById('redirect-uri-display').textContent = _base + '/auth-twitch.html';
+    // Show the exact redirect URI they need to register
+    document.getElementById('redirect-uri-display').textContent =
+      'https://kibbols.github.io/Highlight-Hunter-Jr/auth-twitch.html';
 
     function open() {
       document.getElementById('s-twitch-client-id').value     = get('twitchClientId');
@@ -81,11 +82,11 @@ window.Settings = (() => {
       if (window.App) App.checkReady();
     });
 
-    // Settings panel connect button — fires OAuth directly (Client ID already saved)
+    // Settings panel connect button
     document.getElementById('btn-connect-twitch')
       ?.addEventListener('click', connectTwitch);
 
-    // Setup screen connect button — opens Settings if no Client ID yet, otherwise connects
+    // Setup screen connect button
     document.getElementById('btn-connect-twitch-setup')
       ?.addEventListener('click', () => {
         if (!get('twitchClientId')) {
@@ -102,7 +103,6 @@ window.Settings = (() => {
         if (window.App) App.onTwitchDisconnected();
       });
 
-    // Setup screen → open settings shortcut
     document.getElementById('btn-setup-settings')
       ?.addEventListener('click', open);
   }

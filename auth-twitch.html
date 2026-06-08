@@ -37,7 +37,7 @@
     async function exchange(code) {
       const clientId     = localStorage.getItem('twitch_client_id')     || '';
       const clientSecret = localStorage.getItem('twitch_client_secret') || '';
-      const redirectUri  = window.location.origin + window.location.pathname;
+      const redirectUri  = 'https://kibbols.github.io/Highlight-Hunter-Jr/auth-twitch.html';
 
       if (!clientId || !clientSecret) {
         throw new Error('Twitch Client ID / Secret not set in Settings');
