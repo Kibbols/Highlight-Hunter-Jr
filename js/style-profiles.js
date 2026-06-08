@@ -82,69 +82,72 @@ Return ONLY valid JSON:
     return result;
   }
 
-  // ── Panel wiring ──────────────────────────────────────────────────
+  // ── Panel wiring — IDs match index.html ──────────────────────────
   function initPanel() {
-    const overlay  = document.getElementById('profile-overlay');
-    const openBtn  = document.getElementById('btn-open-profile');
-    const closeBtn = document.getElementById('profile-close');
-    const genBtn   = document.getElementById('profile-generate-btn');
+    const overlay  = document.getElementById('profiles-overlay');
+    const openBtn  = document.getElementById('btn-open-profiles');
+    const closeBtn = document.getElementById('profiles-close');
+    const genBtn   = document.getElementById('btn-create-profile');
     const statusEl = document.getElementById('profile-status');
-    const nameIn   = document.getElementById('p-profile-name');
-    const fileIn   = document.getElementById('p-profile-video');
-    const fileDrop = document.getElementById('profile-file-drop');
-    const fileLabel= document.getElementById('profile-file-label');
+    const nameIn   = document.getElementById('p-name');
+    const fileIn   = document.getElementById('p-file');
+    const fileWrap = document.getElementById('p-file-wrap');
+    const fileLabel= document.getElementById('p-file-label');
     const listEl   = document.getElementById('profiles-list');
     const emptyEl  = document.getElementById('profiles-empty');
 
-    // File drop label update
-    fileIn.addEventListener('change', () => {
-      fileLabel.textContent = fileIn.files[0]?.name || 'Choose a video file…';
+    // File pick
+    fileWrap?.addEventListener('click', () => fileIn?.click());
+    fileIn?.addEventListener('change', () => {
+      if (fileLabel) fileLabel.textContent = fileIn.files[0]?.name || 'Choose video…';
     });
-    fileDrop.addEventListener('click', () => fileIn.click());
 
     function openPanel() {
       _refreshList(listEl, emptyEl);
-      statusEl.classList.add('hidden');
-      statusEl.textContent = '';
-      overlay.classList.remove('hidden');
+      if (statusEl) { statusEl.classList.add('hidden'); statusEl.textContent = ''; }
+      overlay?.classList.remove('hidden');
     }
-    openBtn.addEventListener('click', openPanel);
-    closeBtn.addEventListener('click', () => overlay.classList.add('hidden'));
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.add('hidden'); });
+    function closePanel() { overlay?.classList.add('hidden'); }
 
-    genBtn.addEventListener('click', async () => {
-      const name = nameIn.value.trim();
-      const file = fileIn.files[0];
+    openBtn?.addEventListener('click', openPanel);
+    closeBtn?.addEventListener('click', closePanel);
+    overlay?.addEventListener('click', e => { if (e.target === overlay) closePanel(); });
+
+    genBtn?.addEventListener('click', async () => {
+      const name = nameIn?.value.trim();
+      const file = fileIn?.files[0];
       if (!name) { alert('Enter a profile name'); return; }
       if (!file) { alert('Select a reference video'); return; }
-      genBtn.disabled = true;
-      statusEl.classList.remove('hidden');
+      if (genBtn) genBtn.disabled = true;
+      if (statusEl) statusEl.classList.remove('hidden');
       try {
-        await createProfile(file, name, msg => { statusEl.textContent = msg; });
+        await createProfile(file, name, msg => { if (statusEl) statusEl.textContent = msg; });
         _refreshList(listEl, emptyEl);
         if (window.App) App.updateProfileMatchNote();
       } catch (e) {
-        statusEl.textContent = `✗ ${e.message}`;
+        if (statusEl) statusEl.textContent = `✗ ${e.message}`;
       } finally {
-        genBtn.disabled = false;
+        if (genBtn) genBtn.disabled = false;
       }
     });
   }
 
   function _refreshList(listEl, emptyEl) {
     if (!_manifest.length) {
-      listEl.classList.add('hidden');
-      emptyEl.classList.remove('hidden');
+      listEl?.classList.add('hidden');
+      emptyEl?.classList.remove('hidden');
       return;
     }
-    emptyEl.classList.add('hidden');
-    listEl.classList.remove('hidden');
-    listEl.innerHTML = '';
-    _manifest.forEach(name => {
-      const li = document.createElement('li');
-      li.textContent = name;
-      listEl.appendChild(li);
-    });
+    emptyEl?.classList.add('hidden');
+    listEl?.classList.remove('hidden');
+    if (listEl) {
+      listEl.innerHTML = '';
+      _manifest.forEach(name => {
+        const li = document.createElement('li');
+        li.textContent = name;
+        listEl.appendChild(li);
+      });
+    }
   }
 
   return { loadAll, match, getNames, asPromptText, createProfile, initPanel };
