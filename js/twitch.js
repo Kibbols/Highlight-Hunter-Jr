@@ -4,7 +4,7 @@ window.Twitch = (() => {
 
   function _headers() {
     const token  = Settings.get('twitch_oauth_token');
-    const client = CONFIG.TWITCH_CLIENT_ID;
+    const client = Settings.get('twitchClientId');
     return {
       'Authorization': `Bearer ${token}`,
       'Client-Id': client,
@@ -44,7 +44,7 @@ window.Twitch = (() => {
   // ── Get signed m3u8 URL via GQL (isolated, easy to swap) ─────────
   async function _getSignedM3u8Url(vodId) {
     const token  = Settings.get('twitch_oauth_token');
-    const client = CONFIG.TWITCH_CLIENT_ID;
+    const client = Settings.get('twitchClientId');
 
     const res = await fetch('https://gql.twitch.tv/gql', {
       method: 'POST',
