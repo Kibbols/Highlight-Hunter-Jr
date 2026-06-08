@@ -20,9 +20,15 @@ window.Analysis = (() => {
     highlightPrompt, targetClips, targetDurationMin, pacing,
     styleProfile, onStage, cancelSignal,
   }) {
-    onStage('Uploading to Gemini…', `${(vodBlob.size / 1024 / 1024).toFixed(1)} MB`, 0.1);
+    onStage('Remuxing to mp4…', 'Converting for Gemini compatibility', 0.08);
+    const mp4Blob = await FFmpegHandler.remuxToMp4(vodBlob,
+      (msg, pct) => onStage('Remuxing…', msg, 0.08 + pct * 0.12)
+    );
+    if (cancelSignal?.cancelled) throw new Error('Cancelled');
 
-    const fileUri = await Gemini.uploadFile(vodBlob, vodMimeType, 'vod-analysis', null, cancelSignal);
+    onStage('Uploading to Gemini…', `${(mp4Blob.size / 1024 / 1024).toFixed(1)} MB`, 0.2);
+
+    const fileUri = await Gemini.uploadFile(mp4Blob, 'video/mp4', 'vod-analysis', null, cancelSignal);
     if (cancelSignal?.cancelled) throw new Error('Cancelled');
 
     onStage('Building time blocks…', '', 0.35);

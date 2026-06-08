@@ -93,6 +93,17 @@ window.FFmpegHandler = (() => {
     return new Blob([data.buffer], { type: 'video/mp4' });
   }
 
-  return { load, fetchHlsRange, extractClip, applyCrop, applyOverlay };
+  // Remux .ts blob to .mp4 container (no re-encode, just container swap)
+  async function remuxToMp4(tsBlob, onProgress) {
+    await load();
+    onProgress && onProgress('Remuxing to mp4…', 0.5);
+    _ff.FS('writeFile', 'remux_in.ts', new Uint8Array(await tsBlob.arrayBuffer()));
+    await _ff.run('-i','remux_in.ts','-c','copy','-movflags','+faststart','remux_out.mp4');
+    const data = _ff.FS('readFile', 'remux_out.mp4');
+    _ff.FS('unlink', 'remux_in.ts'); _ff.FS('unlink', 'remux_out.mp4');
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }
+
+  return { load, fetchHlsRange, extractClip, applyCrop, applyOverlay, remuxToMp4 };
 
 })();
