@@ -10,9 +10,10 @@ window.FFmpegHandler = (() => {
     if (typeof FFmpegWASM === 'undefined') throw new Error('FFmpeg.wasm not found — add ffmpeg.js to repo root');
     const { FFmpeg } = FFmpegWASM;
     _ff = new FFmpeg();
+    const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
     await _ff.load({
-      coreURL:  'ffmpeg-core.js',
-      wasmURL:  'ffmpeg-core.wasm',
+      coreURL:  base + 'ffmpeg-core.js',
+      wasmURL:  base + 'ffmpeg-core.wasm',
     });
     _loaded = true;
   }
