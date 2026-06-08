@@ -41,25 +41,31 @@ window.Twitch = (() => {
     return data.data || [];
   }
 
-  // ── Get VOD m3u8 URL via Cloudflare Worker (avoids CORS/GQL issues) ────
+  // ── Get VOD m3u8 URL directly from browser via GQL (no Worker needed) ──
   async function _getSignedM3u8Url(vodId) {
-    const token  = Settings.get('twitchToken');
-    const worker = 'https://highlightjr.portgamingsttv.workers.dev/twitch-vod-m3u8';
-
-    const res = await fetch(worker, {
+    const res = await fetch('https://gql.twitch.tv/gql', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vod_id: vodId, access_token: token }),
+      headers: {
+        'Client-Id':    'kimne78kx3ncx6brgo4mv6wki5h1ko',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        operationName: 'PlaybackAccessToken_Template',
+        query: `query PlaybackAccessToken_Template($vodID:ID!,$playerType:String!){
+          videoPlaybackAccessToken(id:$vodID,params:{platform:"web",playerBackend:"mediaplayer",playerType:$playerType})@include(if:true){value signature __typename}
+        }`,
+        variables: { vodID: vodId, playerType: 'site' },
+      }),
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`VOD m3u8 fetch failed: ${err.error || res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`GQL request failed: ${res.status}`);
     const data = await res.json();
-    if (!data.url) throw new Error('Worker returned no m3u8 URL');
-    return data.url;
+    const tok  = data?.data?.videoPlaybackAccessToken;
+    if (!tok) throw new Error(`No playback token from GQL: ${JSON.stringify(data?.errors)}`);
+
+    const sig = encodeURIComponent(tok.signature);
+    const val = encodeURIComponent(tok.value);
+    return `https://usher.twitchapps.com/vod/${vodId}?nauth=${val}&nauthsig=${sig}&allow_source=true&allow_spectre=true`;
   }
 
   // ── Parse quality variants from m3u8 master playlist ─────────────
