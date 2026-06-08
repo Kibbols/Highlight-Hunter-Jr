@@ -71,7 +71,11 @@ window.Twitch = (() => {
   // ── Parse quality variants from m3u8 master playlist ─────────────
   async function fetchQualities(vodId) {
     const masterUrl = await _getSignedM3u8Url(vodId);
-    const res = await fetch(masterUrl);
+    const res = await fetch('https://highlightjr.portgamingsttv.workers.dev/twitch-usher', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: masterUrl }),
+    });
     if (!res.ok) throw new Error(`m3u8 fetch failed: ${res.status}`);
     const text = await res.text();
     return _parseVariants(text, masterUrl);

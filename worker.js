@@ -24,7 +24,6 @@ function err(message, status = 500) {
 export default {
   async fetch(request, env) {
 
-    // Preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
@@ -109,6 +108,9 @@ export default {
             'Client-Id':     'kimne78kx3ncx6brgo4mv6wki5h1ko',
             'Authorization': `OAuth ${access_token}`,
             'Content-Type':  'application/json',
+            'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Referer':       'https://www.twitch.tv',
+            'Origin':        'https://www.twitch.tv',
           },
           body: JSON.stringify({
             operationName: 'PlaybackAccessToken_Template',
@@ -119,13 +121,12 @@ export default {
           }),
         });
 
-        // Return full GQL response for debugging if token missing
         const gqlData = await gqlRes.json();
         const tok = gqlData?.data?.videoPlaybackAccessToken;
         if (!tok) {
           return json({
-            error: 'No playback token returned from GQL',
-            gql_status: gqlRes.status,
+            error:        'No playback token returned from GQL',
+            gql_status:   gqlRes.status,
             gql_response: gqlData,
           }, 500);
         }
@@ -134,6 +135,21 @@ export default {
         const val = encodeURIComponent(tok.value);
         return json({
           url: `https://usher.twitchapps.com/vod/${vod_id}?nauth=${val}&nauthsig=${sig}&allow_source=true&allow_spectre=true`,
+        });
+      } catch (e) {
+        return err(e.message);
+      }
+    }
+
+    if (path === '/twitch-usher') {
+      const { url } = body;
+      if (!url) return err('Missing url', 400);
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Usher fetch failed: ${res.status}`);
+        const text = await res.text();
+        return new Response(text, {
+          headers: { ...cors, 'Content-Type': 'application/vnd.apple.mpegurl' },
         });
       } catch (e) {
         return err(e.message);
