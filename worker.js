@@ -145,9 +145,24 @@ export default {
       const { url } = body;
       if (!url) return err('Missing url', 400);
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Usher fetch failed: ${res.status}`);
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Referer':         'https://www.twitch.tv',
+            'Origin':          'https://www.twitch.tv',
+            'Accept':          '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        });
         const text = await res.text();
+        if (!res.ok) {
+          return json({
+            error:       `Usher fetch failed: ${res.status}`,
+            usher_status: res.status,
+            usher_body:   text,
+            usher_url:    url,
+          }, 500);
+        }
         return new Response(text, {
           headers: { ...cors, 'Content-Type': 'application/vnd.apple.mpegurl' },
         });
