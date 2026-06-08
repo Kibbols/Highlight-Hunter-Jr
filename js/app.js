@@ -207,8 +207,10 @@ window.App = (() => {
       UI.showView('view-results');
 
     } catch (e) {
+      console.error('Analysis error:', e);
       UI.showView('view-input');
-      if (e.message !== 'Cancelled') alert(`Analysis failed: ${e.message}`);
+      const msg = e?.message || String(e) || 'Unknown error';
+      if (msg !== 'Cancelled') alert(`Analysis failed: ${msg}`);
     }
   }
 
