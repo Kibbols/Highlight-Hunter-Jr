@@ -20,9 +20,9 @@
       gap: 14px;
     }
     .icon  { font-size: 44px; }
-    .title { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+    .title { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
     .sub   { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #6a6a7a; text-align: center; max-width: 320px; }
-    .error { color: #e84040; }
+    .error { color: #ff5555; }
   </style>
 </head>
 <body>
@@ -30,77 +30,31 @@
   <div class="title" id="title">Connecting Twitch…</div>
   <div class="sub"   id="sub"></div>
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const code   = params.get('code');
+    // Implicit grant returns token in URL hash fragment
+    const hash   = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const token  = params.get('access_token');
     const error  = params.get('error');
 
-    async function exchange(code) {
-      const clientId     = localStorage.getItem('twitch_client_id')     || '';
-      const clientSecret = localStorage.getItem('twitch_client_secret') || '';
-      const redirectUri  = 'https://kibbols.github.io/Highlight-Hunter-Jr/auth-twitch.html';
-
-      if (!clientId || !clientSecret) {
-        throw new Error('Twitch Client ID / Secret not set in Settings');
-      }
-
-      const res = await fetch('https://id.twitch.tv/oauth2/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id:     clientId,
-          client_secret: clientSecret,
-          code,
-          grant_type:    'authorization_code',
-          redirect_uri:  redirectUri,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `Token exchange failed (${res.status})`);
-      }
-
-      const data = await res.json();
-      if (!data.access_token) throw new Error('No access token in response');
-      return data.access_token;
+    if (error) {
+      document.getElementById('icon').textContent  = '✗';
+      document.getElementById('title').textContent = 'Connection cancelled';
+      document.getElementById('sub').textContent   = params.get('error_description') || error;
+      document.getElementById('sub').classList.add('error');
+      setTimeout(() => { window.location.href = 'index.html'; }, 2500);
+    } else if (token) {
+      localStorage.setItem('twitch_oauth_token', token);
+      document.getElementById('icon').textContent  = '✓';
+      document.getElementById('title').textContent = 'Twitch connected!';
+      document.getElementById('sub').textContent   = 'Returning to Highlight Hunter…';
+      setTimeout(() => { window.location.href = 'index.html'; }, 900);
+    } else {
+      document.getElementById('icon').textContent  = '✗';
+      document.getElementById('title').textContent = 'No token received';
+      document.getElementById('sub').textContent   = 'Something went wrong. Try connecting again.';
+      document.getElementById('sub').classList.add('error');
+      setTimeout(() => { window.location.href = 'index.html'; }, 2500);
     }
-
-    async function run() {
-      if (error) {
-        document.getElementById('icon').textContent  = '✗';
-        document.getElementById('title').textContent = 'Connection cancelled';
-        document.getElementById('sub').textContent   = params.get('error_description') || error;
-        document.getElementById('sub').classList.add('error');
-        setTimeout(() => { window.location.href = 'index.html'; }, 2500);
-        return;
-      }
-
-      if (!code) {
-        document.getElementById('icon').textContent  = '✗';
-        document.getElementById('title').textContent = 'No code received';
-        document.getElementById('sub').textContent   = 'Something went wrong. Returning to app…';
-        document.getElementById('sub').classList.add('error');
-        setTimeout(() => { window.location.href = 'index.html'; }, 2500);
-        return;
-      }
-
-      try {
-        const token = await exchange(code);
-        localStorage.setItem('twitch_oauth_token', token);
-        document.getElementById('icon').textContent  = '✓';
-        document.getElementById('title').textContent = 'Twitch connected!';
-        document.getElementById('sub').textContent   = 'Returning to Highlight Hunter…';
-        setTimeout(() => { window.location.href = 'index.html'; }, 900);
-      } catch (e) {
-        document.getElementById('icon').textContent  = '✗';
-        document.getElementById('title').textContent = 'Connection failed';
-        document.getElementById('sub').textContent   = e.message;
-        document.getElementById('sub').classList.add('error');
-        setTimeout(() => { window.location.href = 'index.html'; }, 3000);
-      }
-    }
-
-    run();
   </script>
 </body>
 </html>
