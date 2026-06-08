@@ -1,0 +1,22 @@
+{
+  "name": "Dbdfun",
+  "pacing": "fast",
+  "avg_clip_duration_seconds": 2.5,
+  "cut_style": "hard",
+  "preferred_moments": [
+    "funny or unexpected character glitches",
+    "sudden jumpscares",
+    "hilarious reactions",
+    "chaotic gameplay moments"
+  ],
+  "avoid": [
+    "long slow exposition",
+    "dead air",
+    "unfiltered raw footage"
+  ],
+  "energy_level": "high",
+  "commentary_weight": "moderate",
+  "reaction_weight": "heavy",
+  "gameplay_weight": "moderate",
+  "notes": "Utilizes a split-screen format showcasing the streamer's face reaction alongside gameplay footage. Uses on-screen text overlays to emphasize emotional beats and humor."
+}
