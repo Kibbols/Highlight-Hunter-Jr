@@ -1,22 +1,49 @@
 {
   "name": "Dbdfun",
-  "pacing": "fast",
-  "avg_clip_duration_seconds": 14.5,
-  "cut_style": "hard",
-  "preferred_moments": [
-    "funny or unexpected character glitches",
-    "sudden jumpscares",
-    "hilarious reactions",
-    "chaotic gameplay moments"
-  ],
-  "avoid": [
-    "long slow exposition",
-    "dead air",
-    "unfiltered raw footage"
-  ],
   "energy_level": "high",
-  "commentary_weight": "moderate",
-  "reaction_weight": "heavy",
-  "gameplay_weight": "moderate",
-  "notes": "Utilizes a split-screen format showcasing the streamer's face reaction alongside gameplay footage. Uses on-screen text overlays to emphasize emotional beats and humor."
+  "highlight_moments": {
+    "always_clip": [
+      "funny or unexpected character glitches",
+      "sudden jumpscares",
+      "hilarious reactions",
+      "chaotic gameplay moments",
+      "silly or unusual emergent gameplay scenarios"
+    ],
+    "never_clip": [
+      "long slow exposition",
+      "dead air",
+      "unfiltered raw footage",
+      "routine gameplay tasks"
+    ]
+  },
+  "excitement_signals": {
+    "audio": [
+      "sudden increase in volume",
+      "laughter",
+      "gasps",
+      "energetic exclamations"
+    ],
+    "visual": [
+      "rapid camera movement",
+      "on-screen text overlays",
+      "split-screen reaction cuts"
+    ],
+    "gameplay": [
+      "character ragdolls",
+      "unexpected collision behavior",
+      "quick player eliminations"
+    ]
+  },
+  "crop_focus": {
+    "primary_action_region": "Split-screen area capturing both gameplay action and streamer reactions",
+    "avoid_region": "Static, non-eventful background scenery or long stretches of HUD navigation",
+    "notes": "Maintain both the in-game action and the streamer's reaction face as they are essential to the context of the humor."
+  },
+  "clip_pacing": {
+    "ideal_duration_seconds": 30,
+    "start_before_peak_seconds": 3,
+    "end_after_peak_seconds": 5
+  },
+  "commentary_style": "High-energy reaction-focused commentary that highlights the irony or absurdity of the on-screen events.",
+  "notes": "The goal is to capture the synergy between the game's unintentional comedy and the creator's live reaction. Aim for clips that are concise and punchy."
 }
