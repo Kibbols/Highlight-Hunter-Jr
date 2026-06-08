@@ -121,15 +121,22 @@ window.Twitch = (() => {
     return variants.find(v => v.height <= 480) || null;
   }
 
-  // ── Download a stream as a single Blob (all segments) ────────────
-  async function downloadStreamAsBlob(variantUrl, onProgress, cancelSignal) {
-    const res = await fetch('https://highlightjr.portgamingsttv.workers.dev/proxy-m3u8', {
+  const DENO_PROXY = 'https://deep-dragonfly-81.kibbols.deno.net';
+
+  async function _proxyFetch(url) {
+    const res = await fetch(DENO_PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: variantUrl }),
+      body: JSON.stringify({ url }),
     });
-    if (!res.ok) throw new Error(`Playlist fetch failed: ${res.status}`);
-    const text = await res.text();
+    if (!res.ok) throw new Error(`Proxy fetch failed: ${res.status}`);
+    return res;
+  }
+
+  // ── Download a stream as a single Blob (all segments) ────────────
+  async function downloadStreamAsBlob(variantUrl, onProgress, cancelSignal) {
+    const playlistRes = await _proxyFetch(variantUrl);
+    const text = await playlistRes.text();
 
     const base  = variantUrl.substring(0, variantUrl.lastIndexOf('/') + 1);
     const segs  = text.split('\n')
@@ -142,8 +149,7 @@ window.Twitch = (() => {
     const parts = [];
     for (let i = 0; i < segs.length; i++) {
       if (cancelSignal?.cancelled) throw new Error('Cancelled');
-      const r = await fetch(segs[i]);
-      if (!r.ok) throw new Error(`Segment ${i + 1} failed: ${r.status}`);
+      const r = await _proxyFetch(segs[i]);
       parts.push(await r.arrayBuffer());
       onProgress && onProgress(i + 1, segs.length);
     }
