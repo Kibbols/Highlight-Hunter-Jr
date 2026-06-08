@@ -52,20 +52,34 @@ window.StyleProfiles = (() => {
     const result = await Gemini.generate(
       [
         { fileData: { mimeType: videoBlob.type || 'video/mp4', fileUri } },
-        { text: `Watch this short-form video and extract an editing style profile for content type "${profileName}".${consolidate}
+        { text: `Watch this video and extract a highlight clipping profile for content type "${profileName}".${consolidate}
+
+This profile will be used to identify 30-60 second highlight clips from a longer VOD. Focus on what makes a moment worth clipping.
 
 Return ONLY valid JSON:
 {
   "name": "${profileName}",
-  "pacing": "fast|medium|slow",
-  "avg_clip_duration_seconds": <number>,
-  "cut_style": "hard|jump|transition",
-  "preferred_moments": [],
-  "avoid": [],
   "energy_level": "high|medium|low",
-  "commentary_weight": "heavy|moderate|minimal",
-  "reaction_weight": "heavy|moderate|minimal",
-  "gameplay_weight": "heavy|moderate|minimal",
+  "highlight_moments": {
+    "always_clip": [],
+    "never_clip": []
+  },
+  "excitement_signals": {
+    "audio": [],
+    "visual": [],
+    "gameplay": []
+  },
+  "crop_focus": {
+    "primary_action_region": "",
+    "avoid_region": "",
+    "notes": ""
+  },
+  "clip_pacing": {
+    "ideal_duration_seconds": <number>,
+    "start_before_peak_seconds": <number>,
+    "end_after_peak_seconds": <number>
+  },
+  "commentary_style": "",
   "notes": ""
 }` },
       ],
