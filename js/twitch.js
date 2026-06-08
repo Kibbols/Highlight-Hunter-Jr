@@ -98,28 +98,21 @@ window.Twitch = (() => {
       return `https://${domain}/${vodSpecialID}/${key}/index-dvr.m3u8`;
     }
 
-    const variants = [];
-    for (const q of qualities) {
-      const url = buildUrl(q.key);
-      try {
-        const r = await fetch(url, { method: 'HEAD' });
-        if (r.ok) {
-          const [w, h] = q.res.split('x').map(Number);
-          variants.push({
-            label:      q.label,
-            resolution: q.res,
-            height:     h,
-            width:      w,
-            bandwidth:  0,
-            url,
-          });
-        }
-      } catch (_) {
-        // quality not available, skip
-      }
-    }
+    // Build all variants optimistically — CDN blocks HEAD/OPTIONS so we
+    // can't pre-validate. Segment fetch will fail gracefully if a quality
+    // doesn't exist. We always include chunked + standard tiers.
+    const variants = qualities.map(q => {
+      const [w, h] = q.res.split('x').map(Number);
+      return {
+        label:      q.label,
+        resolution: q.res,
+        height:     h,
+        width:      w,
+        bandwidth:  0,
+        url:        buildUrl(q.key),
+      };
+    });
 
-    if (!variants.length) throw new Error('No accessible quality variants found for this VOD');
     return variants.sort((a, b) => a.height - b.height); // ascending: smallest first
   }
 
