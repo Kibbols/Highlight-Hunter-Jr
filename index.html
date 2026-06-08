@@ -1,94 +1,315 @@
-// clip-processor.js — Stage 2: per-clip Gemini crop + FFmpeg pipeline
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Highlight Hunter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
 
-window.ClipProcessor = (() => {
+  <!-- ════════════════════════════════════════════════════════════════
+       SETTINGS DRAWER
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="drawer">
+      <div class="drawer-header">
+        <span class="drawer-title">Settings</span>
+        <button class="close-btn" id="settings-close">✕</button>
+      </div>
+      <div class="drawer-body">
 
-  async function processClip({ segment, smallestUrl, fullUrl, smallestRes, fullResW, fullResH, overlayYT, overlayTT, onStatus, cancelSignal }) {
+        <div class="settings-group">
+          <div class="settings-group-label">Twitch</div>
 
-    // 1. Fetch low-res clip for Gemini
-    onStatus('Fetching low-res clip for analysis…');
-    const lowBlob = await FFmpegHandler.fetchHlsRange(smallestUrl, segment.startSec, segment.endSec);
-    const lowMime = 'video/mp2t';
-    const resStr  = typeof smallestRes === 'object'
-      ? `${smallestRes.width}x${smallestRes.height}`
-      : String(smallestRes);
+          <!-- Connected state -->
+          <div id="twitch-connected" class="connection-row hidden">
+            <div class="connection-info">
+              <span class="connection-dot"></span>
+              <span id="twitch-user-display">Connected</span>
+            </div>
+            <button class="pill-btn pill-btn--ghost" id="btn-disconnect-twitch">Disconnect</button>
+          </div>
 
-    // 2. Upload to Gemini
-    onStatus('Uploading to Gemini…');
-    const fileUri = await Gemini.uploadFile(new Blob([await lowBlob.arrayBuffer()], { type: lowMime }), lowMime, `clip-${segment.startSec}`);
+          <!-- Disconnected state -->
+          <div id="twitch-disconnected">
+            <div class="field">
+              <label>Client ID</label>
+              <input type="text"     id="s-twitch-client-id"     placeholder="xxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Client Secret</label>
+              <input type="password" id="s-twitch-client-secret" placeholder="xxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+            </div>
+            <p class="field-note">From <a href="https://dev.twitch.tv/console/apps" target="_blank">dev.twitch.tv/console/apps</a> — add <code id="redirect-uri-display"></code> as a redirect URI</p>
+            <button class="pill-btn pill-btn--twitch" id="btn-connect-twitch">Connect Twitch</button>
+          </div>
+        </div>
 
-    // 3. Gemini crop analysis
-    onStatus('Analysing crop position…');
-    const fxNote = segment.fx === 'zoom_gameplay'
-      ? 'IMPORTANT: "zoom_gameplay" flag — exclude the facecam, focus purely on gameplay.'
-      : 'Default: include both gameplay and facecam in the 9:16 crop if both are visible.';
+        <div class="settings-divider"></div>
 
-    const crop = await Gemini.generate([
-      { fileData: { mimeType: lowMime, fileUri } },
-      { text: `Analysing a clip from a Twitch VOD.
-Clip resolution you are seeing: ${resStr}
-Original full resolution: ${fullResW}x${fullResH}
+        <div class="settings-group">
+          <div class="settings-group-label">Gemini</div>
+          <div class="field">
+            <label>API Key</label>
+            <input type="password" id="s-gemini-key" placeholder="AIza…" autocomplete="off" />
+          </div>
+          <p class="field-note">From <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a></p>
+        </div>
 
-${fxNote}
+        <div class="settings-divider"></div>
 
-Determine the best 9:16 crop of this 16:9 frame.
-ALL values must be proportions (0.0–1.0) of the frame — NEVER absolute pixels.
-For 16:9 → 9:16: width ≈ 0.5625, height = 1.0, x between 0 and 0.4375.
+        <div class="settings-group">
+          <div class="settings-group-label">GitHub <span class="label-note">for style profile storage</span></div>
+          <div class="field">
+            <label>Personal Access Token</label>
+            <input type="password" id="s-gh-token" placeholder="ghp_…" autocomplete="off" />
+          </div>
+          <p class="field-note">Settings → Developer Settings → Personal Access Tokens (classic) → <code>repo</code> scope</p>
+          <div class="field-row">
+            <div class="field">
+              <label>Owner</label>
+              <input type="text" id="s-gh-owner" placeholder="username" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Repo</label>
+              <input type="text" id="s-gh-repo" placeholder="highlight-hunter" autocomplete="off" />
+            </div>
+          </div>
+        </div>
 
-Return ONLY JSON:
-{"facecam_position":"top-right|top-left|bottom-right|bottom-left|none","x":0.21875,"y":0.0,"width":0.5625,"height":1.0,"reasoning":""}` },
-    ], null, true);
+        <button class="save-btn" id="settings-save">Save Settings</button>
+        <p class="save-feedback" id="settings-feedback"></p>
 
-    // Cleanup
-    const fname = fileUri.replace('https://generativelanguage.googleapis.com/v1beta/', '').split('?')[0];
-    Gemini.deleteFile(fname).catch(() => {});
+      </div>
+    </div>
+  </div>
 
-    // Clamp crop values
-    const c = _clampCrop(crop);
+  <!-- ════════════════════════════════════════════════════════════════
+       STYLE PROFILES DRAWER
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="profiles-overlay" class="overlay hidden">
+    <div class="drawer">
+      <div class="drawer-header">
+        <span class="drawer-title">Style Profiles</span>
+        <button class="close-btn" id="profiles-close">✕</button>
+      </div>
+      <div class="drawer-body">
 
-    // 4. Extract full-res clip
-    onStatus('Downloading full-res clip…');
-    const fullBlob = await FFmpegHandler.extractClip(fullUrl, segment.startSec, segment.endSec, msg => onStatus(msg));
+        <div id="profiles-saved">
+          <div class="settings-group-label">Saved</div>
+          <div id="profiles-list-wrap">
+            <p class="empty-note" id="profiles-empty">No profiles yet</p>
+            <ul class="profiles-list hidden" id="profiles-list"></ul>
+          </div>
+        </div>
 
-    // 5. Apply crop
-    onStatus('Cropping to 9:16…');
-    const cropped = await FFmpegHandler.applyCrop(fullBlob, c, fullResW, fullResH);
+        <div class="settings-divider"></div>
 
-    // 6. Build outputs
-    const outputs = [];
-    const safe    = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'clip';
+        <div class="settings-group">
+          <div class="settings-group-label">Create New</div>
+          <p class="field-note" style="margin-bottom:4px">Upload an edited Short. Gemini analyses the editing style and saves a reusable profile to your GitHub repo.</p>
+          <div class="field">
+            <label>Profile Name</label>
+            <input type="text" id="p-name" placeholder="e.g. dbd-funny-moments" />
+          </div>
+          <div class="field">
+            <label>Reference Short</label>
+            <div class="file-input-wrap" id="p-file-wrap">
+              <input type="file" id="p-file" accept="video/*" />
+              <span id="p-file-label">Choose video…</span>
+            </div>
+          </div>
+          <button class="pill-btn pill-btn--accent" id="btn-create-profile">Analyse &amp; Save</button>
+          <div class="status-box hidden" id="profile-status"></div>
+        </div>
 
-    if (!overlayYT && !overlayTT) {
-      outputs.push({ label: segment.label, filename: `${safe(segment.label)}.mp4`, blob: cropped, url: URL.createObjectURL(cropped) });
-    } else {
-      if (overlayYT) {
-        onStatus('Compositing YouTube overlay…');
-        const b = await FFmpegHandler.applyOverlay(cropped, overlayYT.blob, overlayYT.mime, 1.0);
-        outputs.push({ label: `${segment.label} (YouTube)`, filename: `${safe(segment.label)}_yt.mp4`, blob: b, url: URL.createObjectURL(b) });
-      }
-      if (overlayTT) {
-        onStatus('Compositing TikTok overlay…');
-        const b = await FFmpegHandler.applyOverlay(cropped, overlayTT.blob, overlayTT.mime, 1.0);
-        outputs.push({ label: `${segment.label} (TikTok)`, filename: `${safe(segment.label)}_tt.mp4`, blob: b, url: URL.createObjectURL(b) });
-      }
-    }
+      </div>
+    </div>
+  </div>
 
-    onStatus('Done ✓');
-    return { outputs };
-  }
+  <!-- ════════════════════════════════════════════════════════════════
+       APP
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="app">
 
-  function _clampCrop(c) {
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || 0));
-    const x = clamp(c.x ?? 0.21875, 0, 0.4375);
-    const y = clamp(c.y ?? 0, 0, 1);
-    const w = clamp(c.width  ?? 0.5625, 0.1, 1);
-    const h = clamp(c.height ?? 1.0,    0.1, 1);
-    return {
-      x: x + w > 1 ? 1 - w : x,
-      y: y + h > 1 ? 1 - h : y,
-      width: w, height: h,
-    };
-  }
+    <!-- Header -->
+    <header id="app-header">
+      <div class="header-brand">
+        <div class="brand-mark">▶</div>
+        <span class="brand-name">Highlight<span class="brand-accent">Hunter</span></span>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="btn-open-profiles" title="Style Profiles">⊞</button>
+        <button class="header-icon-btn" id="btn-open-settings" title="Settings">⚙</button>
+      </div>
+    </header>
 
-  return { processClip };
+    <!-- ── SETUP VIEW ─────────────────────────────────────────────── -->
+    <main id="view-setup" class="view active">
+      <div class="setup-screen">
+        <div class="setup-content">
+          <div class="setup-logo">▶</div>
+          <h1 class="setup-heading">Highlight Hunter</h1>
+          <p class="setup-body">Open Settings to enter your Twitch Client ID, Client Secret, and Gemini API key. Then click Connect Twitch and your three most recent VODs will load automatically.</p>
+          <button class="pill-btn pill-btn--twitch pill-btn--lg" id="btn-connect-twitch-setup">Connect Twitch</button>
+          <button class="text-btn" id="btn-setup-settings">Open Settings ⚙</button>
+        </div>
+      </div>
+    </main>
 
-})();
+    <!-- ── INPUT VIEW ─────────────────────────────────────────────── -->
+    <main id="view-input" class="view hidden">
+      <div class="input-screen">
+
+        <!-- Recent VODs -->
+        <section class="section">
+          <div class="section-header">
+            <h2 class="section-title">Recent VODs</h2>
+            <button class="ghost-btn" id="btn-refresh-vods">↻ Refresh</button>
+          </div>
+          <div id="vod-list" class="vod-list">
+            <div class="vod-list-state">Loading your VODs…</div>
+          </div>
+        </section>
+
+        <!-- Selected VOD -->
+        <div id="selected-vod" class="selected-vod hidden">
+          <img id="sel-thumb" src="" alt="" />
+          <div class="sel-info">
+            <div class="sel-title" id="sel-title"></div>
+            <div class="sel-meta"  id="sel-meta"></div>
+            <div class="sel-quality">
+              <span class="quality-pill" id="sel-quality"></span>
+              <span class="quality-error hidden" id="sel-quality-error"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Prompt -->
+        <section class="section">
+          <h2 class="section-title">Highlight Prompt</h2>
+          <div class="field">
+            <label>What to find</label>
+            <textarea id="highlight-prompt" rows="3" placeholder="e.g. funny moments and big plays, kills and chases, hype reactions, educational commentary…"></textarea>
+          </div>
+          <div class="field-row four">
+            <div class="field">
+              <label>Clips</label>
+              <input type="number" id="target-clips" value="5" min="1" max="30" />
+            </div>
+            <div class="field">
+              <label>Min (sec)</label>
+              <input type="number" id="clip-min-sec" value="20" min="5" max="120" step="5" />
+            </div>
+            <div class="field">
+              <label>Max (sec)</label>
+              <input type="number" id="clip-max-sec" value="60" min="10" max="300" step="5" />
+            </div>
+            <div class="field">
+              <label>Pacing</label>
+              <select id="pacing">
+                <option value="fast">Fast</option>
+                <option value="medium" selected>Medium</option>
+                <option value="slow">Slow</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Content type <span class="label-aside">matches a style profile if one exists</span></label>
+            <input type="text" id="content-type" placeholder="e.g. dbd-funny-moments" />
+            <p class="profile-match" id="profile-match"></p>
+          </div>
+        </section>
+
+        <!-- Overlays -->
+        <section class="section section--collapsed">
+          <button class="collapsible-toggle" id="toggle-overlays">
+            <span>CTA Overlays</span>
+            <span class="optional-tag">optional</span>
+            <span class="toggle-arrow" id="toggle-arrow">›</span>
+          </button>
+          <div class="collapsible-body hidden" id="overlays-body">
+            <div class="field-row">
+              <div class="field">
+                <label>YouTube (GIF or alpha MP4)</label>
+                <div class="file-input-wrap" id="overlay-yt-wrap">
+                  <input type="file" id="overlay-yt" accept="video/mp4,image/gif" />
+                  <span id="overlay-yt-label">Choose file…</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>TikTok (GIF or alpha MP4)</label>
+                <div class="file-input-wrap" id="overlay-tt-wrap">
+                  <input type="file" id="overlay-tt" accept="video/mp4,image/gif" />
+                  <span id="overlay-tt-label">Choose file…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Analyse CTA -->
+        <div class="analyse-cta">
+          <button class="analyse-btn" id="btn-analyse" disabled>⚡ Analyse VOD</button>
+          <p class="analyse-hint" id="analyse-hint">Select a VOD first</p>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ── ANALYSING VIEW ─────────────────────────────────────────── -->
+    <main id="view-analysing" class="view hidden">
+      <div class="progress-screen">
+        <div class="progress-spinner"></div>
+        <p class="progress-stage" id="progress-stage">Preparing…</p>
+        <p class="progress-sub"   id="progress-sub"></p>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <button class="ghost-btn" id="btn-cancel">Cancel</button>
+      </div>
+    </main>
+
+    <!-- ── RESULTS VIEW ───────────────────────────────────────────── -->
+    <main id="view-results" class="view hidden">
+      <div class="results-topbar">
+        <button class="ghost-btn ghost-btn--sm" id="btn-back">← Back</button>
+        <div class="results-summary" id="results-summary">
+          <span id="sum-clips"></span>
+          <span class="sum-dot">·</span>
+          <span id="sum-duration"></span>
+        </div>
+      </div>
+      <div class="results-body">
+        <div class="preview-pane">
+          <div class="preview-frame-wrap">
+            <iframe id="vod-preview" src="" frameborder="0" allowfullscreen></iframe>
+          </div>
+          <p class="preview-label" id="preview-label">Tap a clip to preview</p>
+        </div>
+        <div class="clips-pane">
+          <div class="clips-list" id="clips-list"></div>
+        </div>
+      </div>
+    </main>
+
+  </div><!-- /#app -->
+
+  <script src="ffmpeg.js"></script>
+  <script src="js/github.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/twitch.js"></script>
+  <script src="js/gemini.js"></script>
+  <script src="js/style-profiles.js"></script>
+  <script src="js/analysis.js"></script>
+  <script src="js/ffmpeg-handler.js"></script>
+  <script src="js/clip-processor.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
