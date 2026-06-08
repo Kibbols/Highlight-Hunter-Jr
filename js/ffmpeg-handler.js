@@ -68,18 +68,58 @@ window.FFmpegHandler = (() => {
     return new Blob(parts, { type: 'video/mp2t' });
   }
 
-  // ── Remux .ts blob to .mp4 container (no re-encode) ──────────────
+  // ── Remux .ts blob to fMP4 using mux.js (no FFmpeg, no memory limits) ──
   async function remuxToMp4(tsBlob, onProgress) {
-    await load();
-    onProgress && onProgress('Remuxing to mp4…', 0.1);
-    console.log('[FFmpeg] remux input size:', tsBlob.size, 'type:', tsBlob.type);
     if (!tsBlob || tsBlob.size === 0) throw new Error('Remux input blob is empty');
-    await _write('remux_in.ts', tsBlob);
-    await _ff.exec(['-allowed_extensions','ALL','-i','remux_in.ts','-c','copy','-bsf:a','aac_adtstoasc','-movflags','+faststart','remux_out.mp4']);
-    const data = await _read('remux_out.mp4');
-    await _unlink('remux_in.ts', 'remux_out.mp4');
-    onProgress && onProgress('Remux complete', 1.0);
-    return new Blob([data.buffer], { type: 'video/mp4' });
+    if (typeof muxjs === 'undefined') throw new Error('mux.js not loaded');
+
+    onProgress && onProgress('Remuxing to mp4…', 0.1);
+
+    return new Promise((resolve, reject) => {
+      const transmuxer = new muxjs.mp4.Transmuxer();
+      const segments = [];
+      let initSegment = null;
+
+      transmuxer.on('data', segment => {
+        if (!initSegment) {
+          initSegment = segment.initSegment;
+        }
+        const data = new Uint8Array(segment.data.byteLength);
+        data.set(new Uint8Array(segment.data), 0);
+        segments.push(data);
+      });
+
+      transmuxer.on('error', err => reject(new Error('mux.js error: ' + err)));
+
+      tsBlob.arrayBuffer().then(buf => {
+        const chunkSize = 1024 * 1024; // 1MB chunks
+        const data = new Uint8Array(buf);
+        const total = Math.ceil(data.length / chunkSize);
+
+        for (let i = 0; i < data.length; i += chunkSize) {
+          transmuxer.push(data.slice(i, i + chunkSize));
+          onProgress && onProgress('Remuxing…', 0.1 + 0.8 * ((i / chunkSize) / total));
+        }
+        transmuxer.flush();
+
+        // Assemble final MP4 blob
+        const totalBytes = (initSegment ? initSegment.byteLength : 0) +
+          segments.reduce((s, seg) => s + seg.byteLength, 0);
+        const mp4 = new Uint8Array(totalBytes);
+        let offset = 0;
+        if (initSegment) {
+          mp4.set(new Uint8Array(initSegment), offset);
+          offset += initSegment.byteLength;
+        }
+        for (const seg of segments) {
+          mp4.set(seg, offset);
+          offset += seg.byteLength;
+        }
+
+        onProgress && onProgress('Remux complete', 1.0);
+        resolve(new Blob([mp4.buffer], { type: 'video/mp4' }));
+      }).catch(reject);
+    });
   }
 
   // ── Extract a clip from HLS by time range ─────────────────────────
