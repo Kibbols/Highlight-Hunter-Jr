@@ -121,10 +121,10 @@ window.Twitch = (() => {
     return variants.find(v => v.height <= 480) || null;
   }
 
-  const DENO_PROXY = 'https://deep-dragonfly-81.kibbols.deno.net';
+  const WORKER = 'https://highlightjr.portgamingsttv.workers.dev/proxy-m3u8';
 
   async function _proxyFetch(url) {
-    const res = await fetch(DENO_PROXY, {
+    const res = await fetch(WORKER, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
