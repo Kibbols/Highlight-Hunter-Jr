@@ -171,6 +171,22 @@ export default {
       }
     }
 
+    // ── /proxy-m3u8 — proxy CDN playlist fetch to bypass CORS ─────
+    if (path === '/proxy-m3u8') {
+      const { url } = body;
+      if (!url) return err('Missing url', 400);
+      try {
+        const res  = await fetch(url);
+        const text = await res.text();
+        if (!res.ok) return json({ error: `CDN fetch failed: ${res.status}`, body: text }, 500);
+        return new Response(text, {
+          headers: { ...cors, 'Content-Type': 'application/vnd.apple.mpegurl' },
+        });
+      } catch (e) {
+        return err(e.message);
+      }
+    }
+
     return err('Unknown endpoint', 404);
   },
 };
