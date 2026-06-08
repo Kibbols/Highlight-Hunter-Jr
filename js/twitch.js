@@ -3,7 +3,7 @@
 window.Twitch = (() => {
 
   function _headers() {
-    const token  = Settings.get('twitch_oauth_token');
+    const token  = Settings.get('twitchToken');
     const client = Settings.get('twitchClientId');
     return {
       'Authorization': `Bearer ${token}`,
@@ -19,14 +19,14 @@ window.Twitch = (() => {
     const data = await res.json();
     const user = data.data?.[0];
     if (!user) throw new Error('Could not load Twitch user');
-    Settings.set('twitch_user_login', user.login);
-    Settings.set('twitch_user_id',    user.id);
+    Settings.set('twitchLogin', user.login);
+    Settings.set('twitchUserId', user.id);
     return user;
   }
 
   // ── Fetch recent VODs for the current user ────────────────────────
   async function fetchRecentVods(count = 3) {
-    let userId = Settings.get('twitch_user_id');
+    let userId = Settings.get('twitchUserId');
     if (!userId) {
       const user = await fetchCurrentUser();
       userId = user.id;
@@ -43,7 +43,7 @@ window.Twitch = (() => {
 
   // ── Get signed m3u8 URL via GQL (isolated, easy to swap) ─────────
   async function _getSignedM3u8Url(vodId) {
-    const token  = Settings.get('twitch_oauth_token');
+    const token  = Settings.get('twitchToken');
     const client = Settings.get('twitchClientId');
 
     const res = await fetch('https://gql.twitch.tv/gql', {

@@ -4,9 +4,9 @@ window.GH = (() => {
 
   function _creds() {
     return {
-      token: Settings.get('gh_token'),
-      owner: Settings.get('gh_owner'),
-      repo:  Settings.get('gh_repo'),
+      token: Settings.get('ghToken'),
+      owner: Settings.get('ghOwner'),
+      repo:  Settings.get('ghRepo'),
     };
   }
 
