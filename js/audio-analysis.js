@@ -116,15 +116,41 @@ window.AudioAnalysis = (() => {
     return new Blob([wavData.buffer], { type: 'audio/wav' });
   }
 
+  // ── Parse WAV → Float32Array without AudioContext.decodeAudioData ──
+  // WAV is just a header + raw PCM samples — we read it directly
+  // FFmpeg outputs pcm_s16le at 16kHz mono, so the format is known
+  async function _wavToFloat32(wavBlob) {
+    const buf   = await wavBlob.arrayBuffer();
+    const view  = new DataView(buf);
+
+    // Find 'data' chunk (starts at byte 12, scan for 0x64617461)
+    let dataOffset = 12;
+    while (dataOffset < buf.byteLength - 8) {
+      const chunkId   = view.getUint32(dataOffset, false);
+      const chunkSize = view.getUint32(dataOffset + 4, true);
+      if (chunkId === 0x64617461) { // 'data'
+        dataOffset += 8;
+        break;
+      }
+      dataOffset += 8 + chunkSize;
+    }
+
+    // PCM s16le → Float32Array
+    const samples = new Int16Array(buf, dataOffset);
+    const float32 = new Float32Array(samples.length);
+    for (let i = 0; i < samples.length; i++) {
+      float32[i] = samples[i] / 32768.0;
+    }
+    return float32;
+  }
+
   // ── Transcribe a single WAV blob, offset timestamps by startSec ──
   async function _transcribeWav(pipe, wavBlob, startSec) {
-    const ctx      = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    const arrayBuf = await wavBlob.arrayBuffer();
-    const audioBuf = await ctx.decodeAudioData(arrayBuf);
-    ctx.close();
+    // Parse WAV directly to Float32Array — no AudioContext.decodeAudioData needed
+    const float32 = await _wavToFloat32(wavBlob);
+    console.log(`[Whisper] Float32Array samples: ${float32.length} (${(float32.length/16000/60).toFixed(1)} min)`);
 
-    const float32 = audioBuf.getChannelData(0);
-    const result  = await pipe(float32, {
+    const result = await pipe(float32, {
       return_timestamps: true,
       chunk_length_s:    30,
       stride_length_s:   5,
