@@ -177,10 +177,14 @@ export default {
       if (!url) return err('Missing url', 400);
       try {
         const res  = await fetch(url);
-        const text = await res.text();
-        if (!res.ok) return json({ error: `CDN fetch failed: ${res.status}`, body: text }, 500);
-        return new Response(text, {
-          headers: { ...cors, 'Content-Type': 'application/vnd.apple.mpegurl' },
+        if (!res.ok) {
+          const text = await res.text();
+          return json({ error: `CDN fetch failed: ${res.status}`, body: text }, 500);
+        }
+        // Pass through original content-type so segments aren't misidentified
+        const contentType = res.headers.get('Content-Type') || 'application/octet-stream';
+        return new Response(res.body, {
+          headers: { ...cors, 'Content-Type': contentType },
         });
       } catch (e) {
         return err(e.message);
