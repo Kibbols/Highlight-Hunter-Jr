@@ -196,6 +196,6 @@ window.FFmpegHandler = (() => {
     return new Blob([data.buffer], { type: 'video/mp4' });
   }
 
-  return { load, fetchHlsRange, remuxToMp4, extractClip, applyCrop, applyOverlay };
+  return { load, fetchHlsRange, remuxToMp4, extractClip, applyCrop, applyOverlay, get _ff() { return _ff; } };
 
 })();

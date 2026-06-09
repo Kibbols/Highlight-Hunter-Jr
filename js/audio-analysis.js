@@ -87,7 +87,64 @@ window.AudioAnalysis = (() => {
     });
   }
 
-  // ── Transcribe using Transformers.js Whisper ──────────────────────
+  const CHUNK_BYTES = 100 * 1024 * 1024; // 100MB per chunk — well under FFmpeg.wasm 261MB limit
+  const SEGMENT_DURATION_SEC = 10;       // each .ts segment is 10 seconds
+
+  // ── Convert a TS blob chunk to WAV using FFmpeg.wasm ─────────────
+  async function _tsChunkToWav(tsChunk, chunkIndex) {
+    await FFmpegHandler.load();
+    const _ff = FFmpegHandler._ff;
+    if (!_ff) throw new Error('FFmpeg not loaded');
+
+    const inFile  = `chunk_${chunkIndex}.ts`;
+    const outFile = `chunk_${chunkIndex}.wav`;
+    const inData  = new Uint8Array(await tsChunk.arrayBuffer());
+    console.log(`[FFmpeg] Chunk ${chunkIndex}: ${inData.length} bytes`);
+
+    await _ff.writeFile(inFile, inData);
+    await _ff.exec([
+      '-i', inFile,
+      '-acodec', 'pcm_s16le',
+      '-ar', '16000',
+      '-ac', '1',
+      '-f', 'wav',
+      outFile,
+    ]);
+    const wavData = await _ff.readFile(outFile);
+    await _ff.deleteFile(inFile);
+    await _ff.deleteFile(outFile);
+    return new Blob([wavData.buffer], { type: 'audio/wav' });
+  }
+
+  // ── Transcribe a single WAV blob, offset timestamps by startSec ──
+  async function _transcribeWav(pipe, wavBlob, startSec) {
+    const ctx      = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const arrayBuf = await wavBlob.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(arrayBuf);
+    ctx.close();
+
+    const float32 = audioBuf.getChannelData(0);
+    const result  = await pipe(float32, {
+      return_timestamps: true,
+      chunk_length_s:    30,
+      stride_length_s:   5,
+    });
+
+    // Offset timestamps by where this chunk starts in the full VOD
+    if (result?.chunks) {
+      result.chunks = result.chunks.map(c => ({
+        ...c,
+        timestamp: c.timestamp
+          ? [c.timestamp[0] + startSec, c.timestamp[1] ? c.timestamp[1] + startSec : null]
+          : [startSec, null],
+      }));
+    }
+    return result;
+  }
+
+  // ── Transcribe using Transformers.js Whisper, chunked ────────────
+  // Splits the TS blob into ~100MB chunks so FFmpeg.wasm never hits its 261MB limit
+  // Works for any VOD length
   async function transcribe(tsBlob, onProgress) {
     // Wait for Transformers.js to be available
     let attempts = 0;
@@ -101,7 +158,7 @@ window.AudioAnalysis = (() => {
     env.allowRemoteModels = true;
     env.allowLocalModels  = false;
 
-    onProgress && onProgress('Loading Whisper model (downloads once ~75MB)…', 0.1);
+    onProgress && onProgress('Loading Whisper model (downloads once ~75MB)…', 0.05);
 
     const pipe = await pipeline(
       'automatic-speech-recognition',
@@ -110,29 +167,58 @@ window.AudioAnalysis = (() => {
         progress_callback: info => {
           if (info.status === 'downloading') {
             const pct = info.loaded / info.total;
-            onProgress && onProgress(`Downloading Whisper model… ${Math.round(pct * 100)}%`, 0.1 + pct * 0.2);
+            onProgress && onProgress(
+              `Downloading Whisper model… ${Math.round(pct * 100)}%`,
+              0.05 + pct * 0.1
+            );
           }
         },
       }
     );
 
-    onProgress && onProgress('Transcribing audio…', 0.35);
+    // Split blob into ~100MB chunks
+    const totalBytes   = tsBlob.size;
+    const numChunks    = Math.ceil(totalBytes / CHUNK_BYTES);
+    const bytesPerSeg  = totalBytes / (tsBlob.size / 535000); // approx segment size
+    const segsPerChunk = Math.ceil(CHUNK_BYTES / bytesPerSeg);
+    const secPerChunk  = segsPerChunk * SEGMENT_DURATION_SEC;
 
-    // audio_only segments from Twitch CDN are already mp4a.40.2 (AAC in MP4)
-    // No conversion needed — pass directly as audio/mp4
-    const audioBlob = new Blob([tsBlob], { type: 'audio/mp4' });
-    console.log('[Whisper] Audio blob size:', audioBlob.size, 'bytes');
-    const blobUrl = URL.createObjectURL(audioBlob);
-    try {
-      const result = await pipe(blobUrl, {
-        return_timestamps: true,
-        chunk_length_s:    30,
-        stride_length_s:   5,
-      });
-      return result;
-    } finally {
-      URL.revokeObjectURL(blobUrl);
+    console.log(`[Whisper] ${totalBytes} bytes → ${numChunks} chunks of ~${CHUNK_BYTES/1024/1024}MB`);
+
+    const allChunks = [];
+    let fullText    = '';
+
+    for (let i = 0; i < numChunks; i++) {
+      const startByte = i * CHUNK_BYTES;
+      const endByte   = Math.min(startByte + CHUNK_BYTES, totalBytes);
+      const startSec  = i * secPerChunk;
+      const pctBase   = 0.15 + (i / numChunks) * 0.75;
+
+      onProgress && onProgress(
+        `Converting chunk ${i + 1}/${numChunks} to WAV…`,
+        pctBase
+      );
+
+      const chunk  = tsBlob.slice(startByte, endByte);
+      let wavBlob;
+      try {
+        wavBlob = await _tsChunkToWav(chunk, i);
+        console.log(`[Whisper] Chunk ${i} WAV: ${wavBlob.size} bytes`);
+      } catch(e) {
+        throw new Error(`FFmpeg chunk ${i} failed: ${e.message}`);
+      }
+
+      onProgress && onProgress(
+        `Transcribing chunk ${i + 1}/${numChunks}…`,
+        pctBase + (0.75 / numChunks) * 0.5
+      );
+
+      const result = await _transcribeWav(pipe, wavBlob, startSec);
+      if (result?.chunks) allChunks.push(...result.chunks);
+      if (result?.text)   fullText += result.text + ' ';
     }
+
+    return { chunks: allChunks, text: fullText.trim() };
   }
 
   // ── Format transcript chunks into text for Gemini ─────────────────
