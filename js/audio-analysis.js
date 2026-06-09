@@ -52,10 +52,8 @@ window.AudioAnalysis = (() => {
   // ── Transcribe audio using Transformers.js Whisper ────────────────
   // Model downloads once (~75MB for tiny) and caches in browser
   async function transcribe(audioBlob, onProgress) {
-    if (typeof transformers === 'undefined' && typeof window.transformers === 'undefined') {
-      throw new Error('Transformers.js not loaded');
-    }
-    const { pipeline, env } = window.transformers || transformers;
+    // Dynamically import Transformers.js — works from any script context
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js');
 
     // Allow remote model loading from Hugging Face
     env.allowRemoteModels = true;
