@@ -148,30 +148,42 @@ window.Twitch = (() => {
 
     if (!segs.length) throw new Error('No segments found in playlist');
 
-    const parts = [];
-    for (let i = 0; i < segs.length; i++) {
-      if (cancelSignal?.cancelled) throw new Error('Cancelled');
-      let r;
+    const CONCURRENCY = 8; // fetch 8 segments in parallel
+    const parts = new Array(segs.length);
+    let completed = 0;
+
+    async function fetchSeg(i) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 20000);
-          r = await fetch(WORKER, {
+          const r = await fetch(WORKER, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: segs[i] }),
             signal: controller.signal,
           });
           clearTimeout(timeout);
-          if (r.ok) break;
+          if (r.ok) {
+            parts[i] = await r.arrayBuffer();
+            completed++;
+            onProgress && onProgress(completed, segs.length);
+            return;
+          }
         } catch (e) {
-          if (attempt === 2) throw new Error(`Segment ${i + 1} failed after 3 attempts: ${e.message}`);
+          if (attempt === 2) throw new Error(`Segment ${i + 1} failed: ${e.message}`);
           await new Promise(res => setTimeout(res, 1000));
         }
       }
-      parts.push(await r.arrayBuffer());
-      onProgress && onProgress(i + 1, segs.length);
     }
+
+    // Process in parallel batches
+    for (let i = 0; i < segs.length; i += CONCURRENCY) {
+      if (cancelSignal?.cancelled) throw new Error('Cancelled');
+      const batch = segs.slice(i, i + CONCURRENCY).map((_, j) => fetchSeg(i + j));
+      await Promise.all(batch);
+    }
+
     return new Blob(parts, { type: 'video/mp2t' });
   }
 
