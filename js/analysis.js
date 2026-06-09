@@ -1,6 +1,14 @@
-// analysis.js — Stage 1 VOD analysis
+// analysis.js — Stage 1 VOD analysis using transcript + audio peaks + chat
 
 window.Analysis = (() => {
+
+  function fmt(sec) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
 
   function buildBlocks(durationSec, blockSizeSec = 30) {
     const blocks = [];
@@ -11,107 +19,112 @@ window.Analysis = (() => {
     return blocks;
   }
 
-  function blocksToText(blocks) {
-    return blocks.map(b => `Block ${b.blockNum}: ${fmt(b.startSec)} – ${fmt(b.endSec)}`).join('\n');
-  }
-
   async function runAnalysis({
     vodBlob, vodMimeType, vodDurationSec, vodResolution,
+    vodId,
     highlightPrompt, targetClips, clipMinSec, clipMaxSec, pacing,
     styleProfile, onStage, cancelSignal,
   }) {
-    onStage('Remuxing to mp4…', 'Converting for Gemini compatibility', 0.15);
-    const mp4Blob = await FFmpegHandler.remuxToMp4(vodBlob,
-      (msg, pct) => onStage('Remuxing…', msg, 0.15 + pct * 0.1)
-    );
+
+    // ── Step 1: Download audio-only if we have a blob, otherwise use vodBlob ──
+    // vodBlob here is the audio-only blob downloaded from Twitch
+
+    // ── Step 2: Detect audio peaks ────────────────────────────────────
+    onStage('Analysing audio peaks…', '', 0.05);
+    let peaksText = 'No audio peak data.';
+    try {
+      const { peaks, avgRms } = await AudioAnalysis.detectPeaks(vodBlob);
+      peaksText = AudioAnalysis.formatPeaks(peaks, avgRms);
+    } catch (e) {
+      console.warn('Peak detection failed:', e.message);
+    }
     if (cancelSignal?.cancelled) throw new Error('Cancelled');
 
-    onStage('Uploading to Gemini…', `${(mp4Blob.size / 1024 / 1024).toFixed(1)} MB`, 0.25);
-    const fileUri = await Gemini.uploadFile(mp4Blob, 'video/mp4', 'vod-analysis', null, cancelSignal);
+    // ── Step 3: Transcribe with Whisper ───────────────────────────────
+    onStage('Transcribing audio…', 'Loading Whisper model…', 0.1);
+    let transcriptText = 'No transcript available.';
+    try {
+      const result = await AudioAnalysis.transcribe(vodBlob,
+        (msg, pct) => onStage('Transcribing…', msg, 0.1 + pct * 0.3)
+      );
+      transcriptText = AudioAnalysis.formatTranscript(result);
+    } catch (e) {
+      console.warn('Transcription failed:', e.message);
+      onStage('Transcription skipped', e.message, 0.4);
+    }
     if (cancelSignal?.cancelled) throw new Error('Cancelled');
 
-    onStage('Building time blocks…', '', 0.35);
-    const blocks = buildBlocks(vodDurationSec);
-    const targetSec = clipMaxSec * targetClips;
+    // ── Step 4: Fetch chat replay ─────────────────────────────────────
+    onStage('Fetching chat replay…', '', 0.42);
+    let chatText = 'No chat data available.';
+    let chatSpikes = [];
+    try {
+      const messages = await Chat.fetchVodChat(vodId,
+        count => onStage('Fetching chat…', `${count} messages`, 0.42)
+      );
+      const { summary, spikes } = Chat.summarizeChat(messages, vodDurationSec);
+      chatText   = summary;
+      chatSpikes = spikes;
+    } catch (e) {
+      console.warn('Chat fetch failed:', e.message);
+    }
+    if (cancelSignal?.cancelled) throw new Error('Cancelled');
+
+    // ── Step 5: Build Gemini prompt ───────────────────────────────────
+    onStage('Analysing with Gemini…', 'Building prompt', 0.55);
+
     const styleText = StyleProfiles.asPromptText(styleProfile);
 
-    const prompt = `You are an expert Twitch highlight editor. You are watching a low-resolution VOD (${vodResolution}) for analysis only.
+    const prompt = `You are an expert Twitch highlight editor analysing a VOD to find the best clips.
 
 TASK: Find the best highlights matching: "${highlightPrompt}"
-TARGET: ${targetClips} clips, each between ${clipMinSec}–${clipMaxSec} seconds, pacing: ${pacing}
+TARGET: ${targetClips} clips, each ${clipMinSec}–${clipMaxSec} seconds long, pacing: ${pacing}
+VOD DURATION: ${fmt(vodDurationSec)}
 ${styleText}
 
-VOD TIME BLOCKS:
-${blocksToText(blocks)}
+You have three data sources — use ALL of them together to identify highlight moments:
 
-For each block decide KEEP or CUT. For KEPT blocks assign rank 1–5 (5 = unmissable, never trim; 1 = weakest, trim first). Merge consecutive KEEP blocks into segments. Optionally flag fx: "zoom_face" or "zoom_gameplay" (zoom_gameplay = exclude facecam, focus on gameplay action).
+--- SPEECH TRANSCRIPT (with timestamps) ---
+${transcriptText}
+
+--- AUDIO VOLUME PEAKS (moments of loud audio/reactions) ---
+${peaksText}
+
+--- CHAT REPLAY (message frequency and content by time window) ---
+${chatText}
+
+High chat activity + audio peaks + excited speech = strong highlight candidate.
 
 Return ONLY a JSON array, no markdown:
-[{"blocks":[1,2,3],"rank":5,"label":"Clip title","reason":"Why it's a highlight","fx":null}]`;
+[{"startSec":120,"endSec":180,"rank":5,"label":"Clip title","reason":"Why it's a highlight"}]
 
-    onStage('Gemini is analysing…', `${blocks.length} blocks`, 0.45);
+Use seconds as numbers. Rank 1–5 (5 = unmissable). Merge overlapping windows into single clips.`;
 
+    // ── Step 6: Send to Gemini (text only — no file upload needed) ────
     const raw = await Gemini.generate(
-      [{ fileData: { mimeType: vodMimeType, fileUri } }, { text: prompt }],
+      [{ text: prompt }],
       null, true
     );
 
     if (cancelSignal?.cancelled) throw new Error('Cancelled');
-    onStage('Processing results…', '', 0.85);
+    onStage('Processing results…', '', 0.9);
 
-    const blockMap = {};
-    blocks.forEach(b => { blockMap[b.blockNum] = b; });
-    let segments = _mapSegments(raw, blockMap);
-    segments = _enforceDuration(segments, targetSec);
-
-    // Cleanup uploaded file
-    const name = fileUri.replace('https://generativelanguage.googleapis.com/v1beta/', '').split('?')[0];
-    Gemini.deleteFile(name).catch(() => {});
+    // Map raw results to segment format
+    const segments = raw
+      .filter(s => typeof s.startSec === 'number' && typeof s.endSec === 'number')
+      .map(s => ({
+        startSec:    Math.max(0, s.startSec),
+        endSec:      Math.min(vodDurationSec, s.endSec),
+        durationSec: s.endSec - s.startSec,
+        rank:        Math.max(1, Math.min(5, s.rank || 3)),
+        label:       s.label || 'Highlight',
+        reason:      s.reason || '',
+        fx:          null,
+      }))
+      .filter(s => s.durationSec > 0)
+      .sort((a, b) => a.startSec - b.startSec);
 
     return segments;
-  }
-
-  function _mapSegments(raw, blockMap) {
-    return raw
-      .filter(s => s.blocks?.length)
-      .map(s => {
-        const valid = s.blocks.map(n => blockMap[n]).filter(Boolean).sort((a, b) => a.startSec - b.startSec);
-        if (!valid.length) return null;
-        return {
-          startSec:    valid[0].startSec,
-          endSec:      valid[valid.length - 1].endSec,
-          durationSec: valid[valid.length - 1].endSec - valid[0].startSec,
-          rank:        Math.max(1, Math.min(5, s.rank || 3)),
-          label:       s.label || 'Highlight',
-          reason:      s.reason || '',
-          fx:          s.fx || null,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.startSec - b.startSec);
-  }
-
-  function _enforceDuration(segments, targetSec) {
-    const total = segments.reduce((s, seg) => s + seg.durationSec, 0);
-    if (total <= targetSec) return segments;
-    const sorted = segments.slice().sort((a, b) => a.rank - b.rank || b.durationSec - a.durationSec);
-    let over = total - targetSec;
-    const trim = new Set();
-    for (const seg of sorted) {
-      if (over <= 0) break;
-      if (seg.rank === 5) continue;
-      trim.add(seg);
-      over -= seg.durationSec;
-    }
-    return segments.filter(s => !trim.has(s));
-  }
-
-  function fmt(sec) {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = Math.floor(sec % 60);
-    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-    return `${m}:${String(s).padStart(2,'0')}`;
   }
 
   return { buildBlocks, runAnalysis, fmt };

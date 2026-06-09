@@ -176,31 +176,34 @@ window.App = (() => {
     UI.setProgress('Starting…', '', 0);
 
     try {
-      UI.setProgress('Downloading stream…', 'Fetching smallest available resolution', 0.05);
+      // Download audio-only stream (much smaller than video)
+      const audioVariant = state.vodInfo.variants?.find(v => v.label?.toLowerCase().includes('audio')) ||
+                           state.vodInfo.smallest;
+
+      UI.setProgress('Downloading audio…', 'Fetching audio-only stream', 0.02);
 
       const vodBlob = await Twitch.downloadStreamAsBlob(
-        state.vodInfo.smallest.url,
-        (loaded, total) => UI.setProgress('Downloading stream…', `${loaded} / ${total} segments`, 0.05 + 0.25 * (loaded / total)),
+        audioVariant.url,
+        (loaded, total) => UI.setProgress('Downloading audio…', `${loaded} / ${total} segments`, 0.02 + 0.08 * (loaded / total)),
         state.cancelSignal
       );
 
       if (state.cancelSignal.cancelled) throw new Error('Cancelled');
 
-      const vodRes = state.vodInfo.smallest.resolution || `${state.vodInfo.smallest.height}p`;
-
       state.segments = await Analysis.runAnalysis({
         vodBlob,
-        vodMimeType:       'video/mp2t',
-        vodDurationSec:    state.vodDurationSec,
-        vodResolution:     vodRes,
-        highlightPrompt:   prompt,
-        targetClips:       clips,
+        vodMimeType:    'video/mp2t',
+        vodDurationSec: state.vodDurationSec,
+        vodResolution:  audioVariant.resolution || 'audio',
+        vodId:          state.vodInfo.vodId,
+        highlightPrompt: prompt,
+        targetClips:    clips,
         clipMinSec,
         clipMaxSec,
         pacing,
-        styleProfile:      profile,
-        onStage: (label, sub, pct) => UI.setProgress(label, sub, 0.3 + pct * 0.7),
-        cancelSignal:      state.cancelSignal,
+        styleProfile:   profile,
+        onStage: (label, sub, pct) => UI.setProgress(label, sub, 0.1 + pct * 0.9),
+        cancelSignal:   state.cancelSignal,
       });
 
       UI.renderResults(state.segments, state.vodInfo);
