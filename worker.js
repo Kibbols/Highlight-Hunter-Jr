@@ -1,51 +1,69 @@
 // Highlight Hunter Worker
-// Handles Twitch OAuth and VOD m3u8 URL fetching server-side to avoid CORS issues
+// Single source of truth for all API keys and CDN proxying
 
-const ALLOWED_ORIGIN = 'https://kibbols.github.io';
+function getCors(request) {
+  const origin = request.headers.get('Origin') || '';
+  const allowed = [
+    'https://kibbols.github.io',
+    'https://highlightjr.portgamingsttv.workers.dev',
+  ];
+  // Also allow Android app (no origin header) and any null origin
+  const allowedOrigin = allowed.includes(origin) ? origin : '*';
+  return {
+    'Access-Control-Allow-Origin':  allowedOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age':       '86400',
+  };
+}
 
-const cors = {
-  'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Max-Age':       '86400',
-};
-
-function json(data, status = 200) {
+function json(data, status = 200, cors = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...cors, 'Content-Type': 'application/json' },
   });
 }
 
-function err(message, status = 500) {
-  return json({ error: message }, status);
+function err(message, status = 500, cors = {}) {
+  return json({ error: message }, status, cors);
 }
 
 export default {
   async fetch(request, env) {
+    const cors = getCors(request);
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
 
+    const url  = new URL(request.url);
+    const path = url.pathname;
+
+    // ── /config — returns keys to the app (GET, no secrets exposed beyond key values) ──
+    if (path === '/config') {
+      if (request.method !== 'GET') return err('Method not allowed', 405, cors);
+      return json({
+        twitch_client_id: env.TWITCH_CLIENT_ID,
+        gemini_api_key:   env.GEMINI_API_KEY,
+      }, 200, cors);
+    }
+
+    // All other endpoints require POST
     if (request.method !== 'POST') {
-      return err('Method not allowed', 405);
+      return err('Method not allowed', 405, cors);
     }
 
     let body;
     try {
       body = await request.json();
     } catch {
-      return err('Invalid JSON', 400);
+      return err('Invalid JSON', 400, cors);
     }
-
-    const url  = new URL(request.url);
-    const path = url.pathname;
 
     // ── /twitch-auth ─────────────────────────────────────────────────
     if (path === '/twitch-auth') {
       const { code, redirect_uri } = body;
-      if (!code || !redirect_uri) return err('Missing code or redirect_uri', 400);
+      if (!code || !redirect_uri) return err('Missing code or redirect_uri', 400, cors);
       try {
         const res = await fetch('https://id.twitch.tv/oauth2/token', {
           method: 'POST',
@@ -64,16 +82,16 @@ export default {
           access_token:  data.access_token,
           refresh_token: data.refresh_token,
           expires_in:    data.expires_in,
-        });
+        }, 200, cors);
       } catch (e) {
-        return err(e.message);
+        return err(e.message, 500, cors);
       }
     }
 
     // ── /twitch-refresh ──────────────────────────────────────────────
     if (path === '/twitch-refresh') {
       const { refresh_token } = body;
-      if (!refresh_token) return err('Missing refresh_token', 400);
+      if (!refresh_token) return err('Missing refresh_token', 400, cors);
       try {
         const res = await fetch('https://id.twitch.tv/oauth2/token', {
           method: 'POST',
@@ -91,106 +109,31 @@ export default {
           access_token:  data.access_token,
           refresh_token: data.refresh_token,
           expires_in:    data.expires_in,
-        });
+        }, 200, cors);
       } catch (e) {
-        return err(e.message);
+        return err(e.message, 500, cors);
       }
     }
 
-    // ── /twitch-vod-m3u8 ────────────────────────────────────────────
-    if (path === '/twitch-vod-m3u8') {
-      const { vod_id, access_token } = body;
-      if (!vod_id || !access_token) return err('Missing vod_id or access_token', 400);
-      try {
-        const gqlRes = await fetch('https://gql.twitch.tv/gql', {
-          method: 'POST',
-          headers: {
-            'Client-Id':     'kimne78kx3ncx6brgo4mv6wki5h1ko',
-            'Authorization': `OAuth ${access_token}`,
-            'Content-Type':  'application/json',
-            'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'Referer':       'https://www.twitch.tv',
-            'Origin':        'https://www.twitch.tv',
-          },
-          body: JSON.stringify({
-            operationName: 'PlaybackAccessToken_Template',
-            query: `query PlaybackAccessToken_Template($login:String!,$isLive:Boolean!,$vodID:ID!,$isVod:Boolean!,$playerType:String!){
-              videoPlaybackAccessToken(id:$vodID,params:{platform:"web",playerBackend:"mediaplayer",playerType:$playerType})@include(if:$isVod){value signature __typename}
-            }`,
-            variables: { isLive: false, login: '', isVod: true, vodID: vod_id, playerType: 'site' },
-          }),
-        });
-
-        const gqlData = await gqlRes.json();
-        const tok = gqlData?.data?.videoPlaybackAccessToken;
-        if (!tok) {
-          return json({
-            error:        'No playback token returned from GQL',
-            gql_status:   gqlRes.status,
-            gql_response: gqlData,
-          }, 500);
-        }
-
-        const sig = encodeURIComponent(tok.signature);
-        const val = encodeURIComponent(tok.value);
-        return json({
-          url: `https://usher.twitchapps.com/vod/${vod_id}?nauth=${val}&nauthsig=${sig}&allow_source=true&allow_spectre=true`,
-        });
-      } catch (e) {
-        return err(e.message);
-      }
-    }
-
-    if (path === '/twitch-usher') {
-      const { url } = body;
-      if (!url) return err('Missing url', 400);
-      try {
-        const res = await fetch(url, {
-          headers: {
-            'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            'Referer':         'https://www.twitch.tv',
-            'Origin':          'https://www.twitch.tv',
-            'Accept':          '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-        });
-        const text = await res.text();
-        if (!res.ok) {
-          return json({
-            error:       `Usher fetch failed: ${res.status}`,
-            usher_status: res.status,
-            usher_body:   text,
-            usher_url:    url,
-          }, 500);
-        }
-        return new Response(text, {
-          headers: { ...cors, 'Content-Type': 'application/vnd.apple.mpegurl' },
-        });
-      } catch (e) {
-        return err(e.message);
-      }
-    }
-
-    // ── /proxy-m3u8 — proxy CDN playlist fetch to bypass CORS ─────
+    // ── /proxy-m3u8 — proxy CDN segments to bypass CORS (web app only) ──
     if (path === '/proxy-m3u8') {
       const { url } = body;
-      if (!url) return err('Missing url', 400);
+      if (!url) return err('Missing url', 400, cors);
       try {
-        const res  = await fetch(url);
+        const res = await fetch(url);
         if (!res.ok) {
           const text = await res.text();
-          return json({ error: `CDN fetch failed: ${res.status}`, body: text }, 500);
+          return json({ error: `CDN fetch failed: ${res.status}`, body: text }, 500, cors);
         }
-        // Pass through original content-type so segments aren't misidentified
         const contentType = res.headers.get('Content-Type') || 'application/octet-stream';
         return new Response(res.body, {
           headers: { ...cors, 'Content-Type': contentType },
         });
       } catch (e) {
-        return err(e.message);
+        return err(e.message, 500, cors);
       }
     }
 
-    return err('Unknown endpoint', 404);
+    return err('Unknown endpoint', 404, cors);
   },
 };
