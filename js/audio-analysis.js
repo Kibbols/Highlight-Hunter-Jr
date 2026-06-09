@@ -4,10 +4,50 @@ window.AudioAnalysis = (() => {
 
   // ── Detect volume peaks from audio blob ───────────────────────────
   // Returns array of { startSec, endSec, rms } for windows above threshold
+  async function _transmuxToAudio(tsBlob) {
+    // Use mux.js to convert MPEG-TS to fMP4 so Web Audio API can decode it
+    return new Promise((resolve, reject) => {
+      const transmuxer = new muxjs.mp4.Transmuxer();
+      const segments = [];
+      let initSegment = null;
+      transmuxer.on('data', seg => {
+        if (!initSegment) initSegment = seg.initSegment;
+        segments.push(new Uint8Array(seg.data));
+      });
+      transmuxer.on('error', e => reject(new Error('mux.js: ' + e)));
+      tsBlob.arrayBuffer().then(buf => {
+        const data = new Uint8Array(buf);
+        const chunk = 1024 * 1024;
+        for (let i = 0; i < data.length; i += chunk) transmuxer.push(data.slice(i, i + chunk));
+        transmuxer.flush();
+        const total = (initSegment ? initSegment.byteLength : 0) + segments.reduce((s, g) => s + g.byteLength, 0);
+        const mp4 = new Uint8Array(total);
+        let off = 0;
+        if (initSegment) { mp4.set(new Uint8Array(initSegment), off); off += initSegment.byteLength; }
+        for (const seg of segments) { mp4.set(seg, off); off += seg.byteLength; }
+        resolve(new Blob([mp4.buffer], { type: 'audio/mp4' }));
+      }).catch(reject);
+    });
+  }
+
   async function detectPeaks(audioBlob, windowSec = 5) {
+    let decodeBlob;
+    try {
+      decodeBlob = await _transmuxToAudio(audioBlob);
+    } catch(e) {
+      console.warn('[Peaks] Transmux failed, skipping peaks:', e.message);
+      return { peaks: [], avgRms: 0, threshold: 0, durationSec: 0 };
+    }
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const arrayBuf = await audioBlob.arrayBuffer();
-    const audioBuf = await ctx.decodeAudioData(arrayBuf);
+    let audioBuf;
+    try {
+      const arrayBuf = await decodeBlob.arrayBuffer();
+      audioBuf = await ctx.decodeAudioData(arrayBuf);
+    } catch(e) {
+      ctx.close();
+      console.warn('[Peaks] decodeAudioData failed:', e.message);
+      return { peaks: [], avgRms: 0, threshold: 0, durationSec: 0 };
+    }
     ctx.close();
 
     const data     = audioBuf.getChannelData(0); // mono
@@ -52,8 +92,14 @@ window.AudioAnalysis = (() => {
   // ── Transcribe audio using Transformers.js Whisper ────────────────
   // Model downloads once (~75MB for tiny) and caches in browser
   async function transcribe(audioBlob, onProgress) {
-    // Dynamically import Transformers.js — works from any script context
-    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js');
+    // Wait for Transformers.js to be available (loaded via module script in index.html)
+    let attempts = 0;
+    while (!window._transformers && attempts < 50) {
+      await new Promise(r => setTimeout(r, 200));
+      attempts++;
+    }
+    if (!window._transformers) throw new Error('Transformers.js failed to load — check browser console');
+    const { pipeline, env } = window._transformers;
 
     // Allow remote model loading from Hugging Face
     env.allowRemoteModels = true;
@@ -77,9 +123,17 @@ window.AudioAnalysis = (() => {
     onProgress && onProgress('Transcribing audio…', 0.35);
 
     // Convert blob to Float32Array at 16kHz (Whisper requirement)
+    // First transmux TS to fMP4 so AudioContext can decode it
+    const mp4Blob  = await _transmuxToAudio(audioBlob);
     const ctx      = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    const arrayBuf = await audioBlob.arrayBuffer();
-    const audioBuf = await ctx.decodeAudioData(arrayBuf);
+    let audioBuf;
+    try {
+      const arrayBuf = await mp4Blob.arrayBuffer();
+      audioBuf = await ctx.decodeAudioData(arrayBuf);
+    } catch(e) {
+      ctx.close();
+      throw new Error(`Audio decode failed: ${e.message} — browser may not support fMP4 audio decoding`);
+    }
     ctx.close();
 
     const float32 = audioBuf.getChannelData(0);

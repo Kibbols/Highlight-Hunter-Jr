@@ -78,7 +78,7 @@ window.Analysis = (() => {
     const prompt = `You are an expert Twitch highlight editor analysing a VOD to find the best clips.
 
 TASK: Find the best highlights matching: "${highlightPrompt}"
-TARGET: ${targetClips} clips, each ${clipMinSec}–${clipMaxSec} seconds long, pacing: ${pacing}
+TARGET: You MUST return EXACTLY ${targetClips} clips. Each clip must be ${clipMinSec}–${clipMaxSec} seconds long. Pacing: ${pacing}. Do not return fewer than ${targetClips} clips.
 VOD DURATION: ${fmt(vodDurationSec)}
 ${styleText}
 
@@ -95,10 +95,10 @@ ${chatText}
 
 High chat activity + audio peaks + excited speech = strong highlight candidate.
 
-Return ONLY a JSON array, no markdown:
+Return ONLY a JSON array of EXACTLY ${targetClips} objects, no markdown, no explanation:
 [{"startSec":120,"endSec":180,"rank":5,"label":"Clip title","reason":"Why it's a highlight"}]
 
-Use seconds as numbers. Rank 1–5 (5 = unmissable). Merge overlapping windows into single clips.`;
+Use seconds as integers. Rank 1–5 (5 = unmissable). Spread clips across the VOD timeline. Array must have exactly ${targetClips} entries.`;
 
     // ── Step 6: Send to Gemini (text only — no file upload needed) ────
     const raw = await Gemini.generate(

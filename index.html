@@ -308,6 +308,14 @@
   <script src="js/style-profiles.js"></script>
   <script src="js/analysis.js"></script>
   <script src="js/ffmpeg-handler.js"></script>
+  <script type="module">
+    try {
+      const t = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js');
+      window._transformers = t;
+    } catch(e) {
+      console.error('Transformers.js failed to load:', e);
+    }
+  </script>
   <script src="js/audio-analysis.js"></script>
   <script src="js/chat.js"></script>
   <script src="js/clip-processor.js"></script>
