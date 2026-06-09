@@ -33,8 +33,8 @@ window.Analysis = (() => {
     onStage('Analysing audio peaks…', '', 0.05);
     let peaksText = 'No audio peak data.';
     try {
-      const { peaks, avgRms } = await AudioAnalysis.detectPeaks(vodBlob);
-      peaksText = AudioAnalysis.formatPeaks(peaks, avgRms);
+      const { peaks, avgEnergy } = await AudioAnalysis.detectPeaks(vodBlob, 10, vodDurationSec);
+      peaksText = AudioAnalysis.formatPeaks(peaks, avgEnergy);
     } catch (e) {
       console.warn('Peak detection failed:', e.message);
     }
