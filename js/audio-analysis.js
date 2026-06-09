@@ -53,8 +53,41 @@ window.AudioAnalysis = (() => {
     }).join('\n');
   }
 
-  // ── Transcribe using Transformers.js Whisper via blob URL ─────────
-  // Passes a blob URL so Transformers.js handles its own audio decoding
+  // ── Convert TS blob to audio-only fMP4 using mux.js ─────────────
+  function _tsToAudioMp4(tsBlob) {
+    return new Promise((resolve, reject) => {
+      if (typeof muxjs === 'undefined') { reject(new Error('mux.js not loaded')); return; }
+      // audio: true tells mux.js to output audio-only fMP4
+      const transmuxer = new muxjs.mp4.Transmuxer({ keepOriginalTimestamps: true });
+      const segments = [];
+      let initSegment = null;
+
+      transmuxer.on('data', seg => {
+        if (!initSegment) initSegment = seg.initSegment;
+        segments.push(new Uint8Array(seg.data));
+      });
+      transmuxer.on('error', e => reject(new Error('mux.js: ' + e)));
+
+      tsBlob.arrayBuffer().then(buf => {
+        const data = new Uint8Array(buf);
+        const chunk = 512 * 1024; // 512KB chunks
+        for (let i = 0; i < data.length; i += chunk) {
+          transmuxer.push(data.slice(i, i + chunk));
+        }
+        transmuxer.flush();
+
+        const total = (initSegment ? initSegment.byteLength : 0) +
+          segments.reduce((s, g) => s + g.byteLength, 0);
+        const mp4 = new Uint8Array(total);
+        let off = 0;
+        if (initSegment) { mp4.set(new Uint8Array(initSegment), off); off += initSegment.byteLength; }
+        for (const seg of segments) { mp4.set(seg, off); off += seg.byteLength; }
+        resolve(new Blob([mp4.buffer], { type: 'audio/mp4' }));
+      }).catch(reject);
+    });
+  }
+
+  // ── Transcribe using Transformers.js Whisper ──────────────────────
   async function transcribe(tsBlob, onProgress) {
     // Wait for Transformers.js to be available
     let attempts = 0;
@@ -85,11 +118,11 @@ window.AudioAnalysis = (() => {
 
     onProgress && onProgress('Transcribing audio…', 0.35);
 
-    // Create a blob URL — Transformers.js handles decoding internally
-    // Wrap in audio/mpeg mime type as a hint; it reads the actual data
-    const audioBlob = new Blob([tsBlob], { type: 'audio/mpeg' });
-    const blobUrl   = URL.createObjectURL(audioBlob);
-
+    // audio_only segments from Twitch CDN are already mp4a.40.2 (AAC in MP4)
+    // No conversion needed — pass directly as audio/mp4
+    const audioBlob = new Blob([tsBlob], { type: 'audio/mp4' });
+    console.log('[Whisper] Audio blob size:', audioBlob.size, 'bytes');
+    const blobUrl = URL.createObjectURL(audioBlob);
     try {
       const result = await pipe(blobUrl, {
         return_timestamps: true,
