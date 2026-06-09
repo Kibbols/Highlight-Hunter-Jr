@@ -48,6 +48,45 @@ export default {
       }, 200, cors);
     }
 
+    // ── /auth-callback — HTTPS landing page for Twitch OAuth redirect ──
+    // Twitch sends token in URL fragment; this page passes it to the Android app
+    if (path === '/auth-callback') {
+      if (request.method !== 'GET') return err('Method not allowed', 405, cors);
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connecting...</title>
+  <style>
+    body { background: #0e0e10; color: #f0eee8; font-family: sans-serif;
+           display: flex; align-items: center; justify-content: center;
+           height: 100vh; margin: 0; flex-direction: column; gap: 16px; }
+    .dot { width: 8px; height: 8px; background: #f0a030; border-radius: 50%;
+           animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div class="dot"></div>
+  <p>Connecting to Highlight Hunter…</p>
+  <script>
+    const fragment = window.location.hash.substring(1);
+    const params = new URLSearchParams(fragment);
+    const token = params.get('access_token');
+    if (token) {
+      window.location.href = 'highlighthunter://oauth?token=' + token;
+    } else {
+      document.querySelector('p').textContent = 'Authentication failed — no token received.';
+    }
+  </script>
+</body>
+</html>`;
+      return new Response(html, {
+        headers: { ...cors, 'Content-Type': 'text/html;charset=UTF-8' },
+      });
+    }
+
     // All other endpoints require POST
     if (request.method !== 'POST') {
       return err('Method not allowed', 405, cors);
