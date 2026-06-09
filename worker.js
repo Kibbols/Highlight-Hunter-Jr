@@ -43,8 +43,7 @@ export default {
     if (path === '/config') {
       if (request.method !== 'GET') return err('Method not allowed', 405, cors);
       return json({
-        // GQL only accepts tokens from Twitch's own client ID
-        twitch_client_id: 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+        twitch_client_id: env.TWITCH_CLIENT_ID,  // your app's client ID for OAuth
         gemini_api_key:   env.GEMINI_API_KEY,
       }, 200, cors);
     }
