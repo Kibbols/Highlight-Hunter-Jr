@@ -5,5 +5,6 @@ compatibility_date = "2024-01-01"
 # Secrets — set these via Cloudflare dashboard or:
 #   wrangler secret put TWITCH_CLIENT_ID
 #   wrangler secret put TWITCH_CLIENT_SECRET
+#   wrangler secret put GEMINI_API_KEY
 #
 # Do NOT put actual values here — this file is committed to git.
