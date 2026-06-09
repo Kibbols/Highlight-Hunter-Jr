@@ -79,6 +79,7 @@ window.Twitch = (() => {
 
     // Quality presets matching Twitch's standard offerings
     const qualities = [
+      { key: 'audio_only', label: 'Audio Only',       res: '0x0',       fps: 0  },
       { key: 'chunked', label: '1080p60 (Source)', res: '1920x1080', fps: 60 },
       { key: '1080p60',  label: '1080p60',          res: '1920x1080', fps: 60 },
       { key: '720p60',   label: '720p60',            res: '1280x720',  fps: 60 },
@@ -118,7 +119,8 @@ window.Twitch = (() => {
 
   // ── Select smallest quality at or below 480p ──────────────────────
   function selectSmallest(variants) {
-    return variants.find(v => v.height <= 480) || null;
+    // Exclude audio_only — only return video variants
+    return variants.find(v => v.height > 0 && v.height <= 480) || null;
   }
 
   const WORKER = 'https://highlightjr.portgamingsttv.workers.dev/proxy-m3u8';

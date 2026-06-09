@@ -39,11 +39,22 @@ window.FFmpegHandler = (() => {
   }
 
   // ── Download HLS segments covering [startSec, endSec] ────────────
+  const WORKER = 'https://highlightjr.portgamingsttv.workers.dev/proxy-m3u8';
+
+  async function _proxyFetch(url) {
+    const res = await fetch(WORKER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) throw new Error(`Proxy fetch failed: ${res.status}`);
+    return res;
+  }
+
   async function fetchHlsRange(hlsUrl, startSec, endSec, onProgress) {
-    const res = await fetch(hlsUrl);
-    if (!res.ok) throw new Error(`Playlist fetch failed: ${res.status}`);
-    const text  = await res.text();
-    const base  = hlsUrl.substring(0, hlsUrl.lastIndexOf('/') + 1);
+    const res  = await _proxyFetch(hlsUrl);
+    const text = await res.text();
+    const base = hlsUrl.substring(0, hlsUrl.lastIndexOf('/') + 1);
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
     const segs = [];
@@ -60,9 +71,22 @@ window.FFmpegHandler = (() => {
     const needed = segs.filter(s => s.end > startSec && s.start < endSec);
     const parts  = [];
     for (let i = 0; i < needed.length; i++) {
-      const r = await fetch(needed[i].url);
-      if (!r.ok) throw new Error(`Segment fetch failed: ${r.status}`);
-      parts.push(await r.arrayBuffer());
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      try {
+        const r = await fetch(WORKER, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: needed[i].url }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!r.ok) throw new Error(`Segment fetch failed: ${r.status}`);
+        parts.push(await r.arrayBuffer());
+      } catch(e) {
+        clearTimeout(timeout);
+        throw e;
+      }
       onProgress && onProgress(`Downloading… ${i + 1}/${needed.length}`, (i + 1) / needed.length);
     }
     return new Blob(parts, { type: 'video/mp2t' });

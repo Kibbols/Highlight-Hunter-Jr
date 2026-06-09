@@ -176,9 +176,9 @@ window.App = (() => {
     UI.setProgress('Starting…', '', 0);
 
     try {
-      // Download audio-only stream (much smaller than video)
-      const audioVariant = state.vodInfo.variants?.find(v => v.label?.toLowerCase().includes('audio')) ||
-                           state.vodInfo.smallest;
+      // Download audio-only stream — never download video for analysis
+      const audioVariant = state.vodInfo.variants?.find(v => v.label === 'Audio Only');
+      if (!audioVariant) throw new Error('No audio-only stream available for this VOD');
 
       UI.setProgress('Downloading audio…', 'Fetching audio-only stream', 0.02);
 
@@ -227,9 +227,11 @@ window.App = (() => {
     UI.setCardStatus(index, 'Starting…', 'running');
 
     try {
-      const smallest  = state.vodInfo.smallest;
       const variants  = state.vodInfo.variants;
-      const fullVar   = variants[variants.length - 1];
+      // 160p30 for Gemini crop analysis, highest video quality for FFmpeg output
+      const smallest  = variants.find(v => v.label === '160p30') ||
+                        variants.filter(v => v.height > 0).sort((a,b) => a.height - b.height)[0];
+      const fullVar   = variants.filter(v => v.height > 0).sort((a,b) => b.height - a.height)[0];
       let fullResW = 1920, fullResH = 1080;
       if (fullVar.resolution) {
         const m = fullVar.resolution.match(/(\d+)x(\d+)/);

@@ -124,7 +124,15 @@ Use seconds as integers. Rank 1–5 (5 = unmissable). Spread clips across the VO
       .filter(s => s.durationSec > 0)
       .sort((a, b) => a.startSec - b.startSec);
 
-    return segments;
+    // Deduplicate — remove clips that start within 30 seconds of another
+    const deduped = [];
+    for (const seg of segments) {
+      if (!deduped.some(d => Math.abs(d.startSec - seg.startSec) < 30)) {
+        deduped.push(seg);
+      }
+    }
+
+    return deduped;
   }
 
   return { buildBlocks, runAnalysis, fmt };
