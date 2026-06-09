@@ -75,9 +75,12 @@ export default {
     const params = new URLSearchParams(fragment);
     const token = params.get('access_token');
     if (token) {
-      window.location.href = 'highlighthunter://oauth?token=' + token;
+      // Use intent URI so Android intercepts it rather than Samsung Browser
+      const intentUri = 'intent://oauth?token=' + encodeURIComponent(token) +
+        '#Intent;scheme=highlighthunter;package=com.ohporty.highlighthunter;end';
+      window.location.href = intentUri;
     } else {
-      document.querySelector('p').textContent = 'Authentication failed — no token received.';
+      document.querySelector('p').textContent = 'Authentication failed — no token received. Fragment: ' + window.location.hash;
     }
   </script>
 </body>
